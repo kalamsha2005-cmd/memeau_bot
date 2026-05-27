@@ -10,6 +10,7 @@
     "start": "node index.js"
   },
   "dependencies": {
+    "@google/generative-ai": "^0.24.1",
     "dotenv": "^17.4.2",
     "node-telegram-bot-api": "^0.67.0",
     "react": "^19.2.6",
