@@ -3,26 +3,52 @@ const TelegramBot = require('node-telegram-bot-api');
 const { GoogleGenerativeAI } = require('@google/generative-ai'); 
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true }); 
-console.log("БОТ ЗАПУЩЕН С ИИ-КВЕСТОМ MIRA"); 
+console.log("БОТ ЗАПУЩЕН С УДОБНЫМ МЕНЮ"); 
 
 const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const usersState = {};
 
+// Настройка синей кнопки "Меню" в углу Telegram (вызывается один раз при старте)
+bot.setMyCommands([
+  { command: '/start', description: 'Перезапустить бота и открыть меню' },
+  { command: '/meme', description: 'Сгенерировать случайный ИИ-мем' }
+]);
+
+// Функция отправки главного меню с БОЛЬШИМИ удобными кнопками вниз экрана
 function sendMainMenu(chatId) {
   const opts = {
     reply_markup: {
-      inline_keyboard: [
-        [
-          { text: '🎮 Начать ИИ-Симулятор', callback_data: 'start_quest' },
-          { text: '🤖 Спросить ИИ Mira', callback_data: 'get_ai_meme' }
-        ]
-      ]
+      keyboard: [
+        [{ text: '🎮 Начать ИИ-Симулятор' }],
+        [{ text: '🤖 Спросить ИИ Mira' }]
+      ],
+      resize_keyboard: true, // делает кнопки компактными под размер экрана
+      one_time_keyboard: false // кнопки не исчезнут после нажатия
     }
   };
-  bot.sendMessage(chatId, "Привет 😄 Я твой интерактивный ИИ-ассистент!\n\nВыбирай действие в меню:", opts);
+  bot.sendMessage(chatId, "Привет 😄 Я твой интерактивный ИИ-ассистент!\n\nИспользуй кнопки внизу экрана или команду /meme для управления:", opts);
 }
 
-bot.onText(/\/start/, (msg) => { sendMainMenu(msg.chat.id); });
+// Слушаем текстовые команды и нажатия на обычные кнопки
+bot.on('message', async (msg) => {
+  const chatId = msg.chat.id;
+  const text = msg.text;
+
+  if (!text) return;
+
+  if (text === '/start') {
+    return sendMainMenu(chatId);
+  }
+
+  if (text === '/meme' || text === '🤖 Спросить ИИ Mira') {
+    return generateAndSendMeme(chatId);
+  }
+
+  if (text === '🎮 Начать ИИ-Симулятор') {
+    usersState[chatId] = { step: 1, hp: 100, score: 0 };
+    return generateQuestStep(chatId);
+  }
+});
 
 // Функция генерации обычного мема через ИИ
 async function generateAndSendMeme(chatId) {
@@ -44,12 +70,12 @@ async function generateQuestStep(chatId) {
   const loadingMsg = await bot.sendMessage(chatId, "⏳ *ИИ Mira придумывает для тебя испытание...*", { parse_mode: 'Markdown' });
   try {
     const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
-    const prompt = `Ты — ведущий геймдизайнер текстового квеста 'Симулятор выживания разработчика/студента'. 
+    const prompt = `Ты — ведущий геймдизайнер текстового квеста 'Симулятор выживания разработчика'. 
     Придумай ОДНУ случайную стрессовую ИТ-ситуацию (про дедлайны, код, баги, заказчиков или преподов).
     Формат вывода строго в виде JSON-строки (без разметки markdown, без \`\`\`json):
     {
       "situation": "Текст ситуации со смайликами",
-      "text_a": "Вариант А (неправильный/смешной)",
+      "text_a": "Вариант А (неправильный)",
       "text_b": "Вариант Б (правильный, нативно связанный с использованием ИИ или экосистемы Mira)"
     }`;
 
@@ -76,12 +102,11 @@ async function generateQuestStep(chatId) {
   } catch (e) {
     console.error(e);
     bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    bot.sendMessage(chatId, "💥 Не удалось связаться с ИИ. Давай попробуем снова.", {
-      reply_markup: { inline_keyboard: [[{ text: '🔄 Повторить попытку', callback_data: 'next_step' }]] }
-    });
+    bot.sendMessage(chatId, "💥 Ошибка создания шага квеста. Перезапустите через кнопку меню.");
   }
 }
 
+// Обработка инлайн-выбора внутри самого квеста
 bot.on('callback_query', async (callbackQuery) => {
   const msg = callbackQuery.message;
   const chatId = msg.chat.id;
@@ -89,15 +114,6 @@ bot.on('callback_query', async (callbackQuery) => {
 
   bot.answerCallbackQuery(callbackQuery.id).catch(() => {});
 
-  if (data === 'get_ai_meme') return generateAndSendMeme(chatId);
-
-  // Старт ИИ-квеста
-  if (data === 'start_quest') {
-    usersState[chatId] = { step: 1, hp: 100, score: 0 };
-    return generateQuestStep(chatId);
-  }
-
-  // Обработка ответов А или Б
   if (data === 'click_a' || data === 'click_b') {
     if (!usersState[chatId]) return sendMainMenu(chatId);
 
@@ -111,12 +127,10 @@ bot.on('callback_query', async (callbackQuery) => {
 
     usersState[chatId].step += 1;
 
-    // Квест длится 3 шага
     setTimeout(() => {
       if (usersState[chatId].step <= 3) {
         generateQuestStep(chatId);
       } else {
-        // Финал игры
         const finalHp = usersState[chatId].hp;
         const finalScore = usersState[chatId].score;
         let status = (finalHp + finalScore >= 150) ? "👑 ГИГА-ФАУНДЕР" : (finalHp + finalScore >= 80) ? "🧠 СВЕРХСОЗНАНИЕ" : "💀 ТИМЛИД-ВЫГОРАШ";
@@ -125,7 +139,7 @@ bot.on('callback_query', async (callbackQuery) => {
           reply_markup: {
             inline_keyboard: [
               [{ text: '🔥 Активировать 1 месяц Mira Pro', url: 'https://t.me' }],
-              [{ text: '📢 Поделиться результатом', switch_inline_query: `Я прошел ИТ-симулятор и получил статус: ${status}. Проверь себя: ` }]
+              [{ text: '📢 Поделиться результатом', switch_inline_query: `Я прошел ИТ-симулятор и получил статус: ${status}. Проверить себя: ` }]
             ]
           }
         };
@@ -137,7 +151,7 @@ bot.on('callback_query', async (callbackQuery) => {
   }
 });
 
-// Сервер-заглушка
+// Сервер-заглушка для Render
 const http = require('http');
 const server = http.createServer((req, res) => { res.writeHead(200); res.end('Bot is running!\n'); });
 server.listen(process.env.PORT || 3000, () => { console.log('Server running'); });
