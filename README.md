@@ -1,16 +1,77 @@
-# React + Vite
+# 🤖 Telegram Bot MIRA - ИИ-Ассистент
 
-This template provides a minimal setup to get React working in Vite with HMR and some ESLint rules.
+Интерактивный Telegram-бот с встроенным Google Generative AI (Gemini), который генерирует мемы и запускает текстовый ИТ-симулятор для программистов.
 
-Currently, two official plugins are available:
+## ✨ Возможности
 
-- [@vitejs/plugin-react](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react) uses [Oxc](https://oxc.rs)
-- [@vitejs/plugin-react-swc](https://github.com/vitejs/vite-plugin-react/blob/main/packages/plugin-react-swc) uses [SWC](https://swc.rs/)
+- 🎮 **ИТ-Симулятор** - текстовый квест про выживание разработчика с ИИ-генерируемыми сценариями
+- 🤖 **ИИ-Мемы** - автоматическое создание смешных текстовых мемов про программистов
+- ⚡ **Стабильная работа** - оптимизация с timeout, защита от спама и cooldown
+- 🔒 **Обработка ошибок** - graceful shutdown, обработка глобальных ошибок, защита от race conditions
 
-## React Compiler
+## 🔄 Последние обновления (27.05.2026)
 
-The React Compiler is not enabled on this template because of its impact on dev & build performances. To add it, see [this documentation](https://react.dev/learn/react-compiler/installation).
+### Fix: Исправлена ошибка 409 (Conflict)
+- ✅ Добавлена защита от двойных кликов через флаг `locked`
+- ✅ Сделаны операции редактирования сообщений последовательными (синхронно через `await`)
+- ✅ Правильная обработка ошибок при редактировании кнопок
+- ✅ Предотвращены race conditions при одновременных запросах к Telegram API
 
-## Expanding the ESLint configuration
+## 🛠 Технологический стек
 
-If you are developing a production application, we recommend using TypeScript with type-aware lint rules enabled. Check out the [TS template](https://github.com/vitejs/vite/tree/main/packages/create-vite/template-react-ts) for information on how to integrate TypeScript and [`typescript-eslint`](https://typescript-eslint.io) in your project.
+- **Node.js** - Runtime
+- **node-telegram-bot-api** - Telegram Bot API
+- **@google/generative-ai** - Google Gemini AI
+- **dotenv** - Управление переменными окружения
+
+## 📋 Установка
+
+```bash
+npm install
+```
+
+## 🚀 Запуск
+
+```bash
+npm start
+```
+
+## 🔐 Переменные окружения (.env)
+
+```
+TELEGRAM_BOT_TOKEN=your_bot_token_here
+GEMINI_API_KEY=your_gemini_api_key_here
+PORT=3000
+```
+
+## 📝 Команды бота
+
+- `/start` - Открыть главное меню
+- `/meme` - Сгенерировать ИИ-мем
+- `🎮 Начать ИИ-Симулятор` - Запустить игру
+- `🤖 Спросить ИИ Mira` - Получить мем от ИИ-агента
+
+## 🎯 Основной функционал
+
+### Мем-генератор
+- Автоматическое создание текстовых мемов через Google Gemini
+- Защита от спама (макс 1 запрос в 2 сек на пользователя)
+- Timeout 15 сек для предотвращения зависаний ИИ
+
+### ИТ-Симулятор
+- 3 уровня испытаний с ИИ-генерируемыми сценариями
+- Система HP и Score для отслеживания прогресса
+- Финальный рейтинг (ГИГА-ФАУНДЕР, СВЕРХСОЗНАНИЕ, ТИМЛИД-ВЫГОРАШ)
+- Блокировка двойных кликов для предотвращения конфликтов
+
+## ⚙️ Оптимизации
+
+- Timeout для всех ИИ-запросов (15 сек)
+- Cooldown между запросами пользователя
+- Graceful shutdown при выключении
+- Race condition prevention через флаги блокировки
+- Параллельное удаление сообщений без блокировки основного потока
+
+## 📞 Поддержка
+
+Контакт: [@mira](https://t.me/mira)

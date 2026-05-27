@@ -169,13 +169,15 @@ bot.on('callback_query', async (callbackQuery) => {
   const chatId = msg.chat.id;
   const data = callbackQuery.data;
 
+  // Сразу отвечаем без задержки
   bot.answerCallbackQuery(callbackQuery.id).catch(() => {});
 
   if (data === 'click_a' || data === 'click_b') {
     if (!usersState[chatId]) return sendMainMenu(chatId);
 
-    // Убираем старые кнопки (non-blocking)
-    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chatId, messageId: msg.message_id }).catch(() => {});
+    // Блокируем двойные клики
+    if (usersState[chatId].locked) return;
+    usersState[chatId].locked = true;
 
     let responseText = "";
     if (data === 'click_a') {
@@ -186,12 +188,28 @@ bot.on('callback_query', async (callbackQuery) => {
       responseText = "🚀 *Отличный выбор!*\nИнструменты Mira помогли решить проблему! Ты получил +50 к продуктивности.\n📈 Очки: " + usersState[chatId].score;
     }
 
-    await bot.sendMessage(chatId, responseText, { parse_mode: 'Markdown' }).catch(() => {});
+    // Удаляем кнопки из старого сообщения (СИНХРОННО перед отправкой нового)
+    try {
+      await bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chatId, messageId: msg.message_id });
+    } catch (e) {
+      console.log("[Edit Error - non-critical]", e.message);
+    }
+
+    // Отправляем результат
+    try {
+      await bot.sendMessage(chatId, responseText, { parse_mode: 'Markdown' });
+    } catch (e) {
+      console.error("[Send Message Error]", e.message);
+      usersState[chatId].locked = false;
+      return;
+    }
+
     usersState[chatId].step += 1;
 
-    // ОПТИМИЗАЦИЯ: используем setImmediate вместо setTimeout для быстрых операций
+    // Генерируем следующий шаг с задержкой
     setTimeout(() => {
       if (!usersState[chatId]) return;
+      usersState[chatId].locked = false;
       
       if (usersState[chatId].step <= 3) {
         generateQuestStep(chatId);
