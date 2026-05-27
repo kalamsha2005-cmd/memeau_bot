@@ -1,12 +1,13 @@
 require('dotenv').config(); 
 const TelegramBot = require('node-telegram-bot-api'); 
-const { GoogleGenAI } = require('@google/generative-ai'); 
+// ИСПРАВЛЕНО: Правильное имя класса из официальной библиотеки Google
+const { GoogleGenerativeAI } = require('@google/generative-ai'); 
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true }); 
 console.log("БОТ ЗАПУЩЕН С ИИ-АГЕНТОМ MIRA"); 
 
-// Инициализируем ИИ с ключом из Render
-const ai = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+// ИСПРАВЛЕНО: Новый способ инициализации ключа
+const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 
 const usersState = {};
 
@@ -38,6 +39,7 @@ async function generateAndSendMeme(chatId) {
   const loadingMsg = await bot.sendMessage(chatId, "🤖 *ИИ-агент Mira формулирует ответ...*", { parse_mode: 'Markdown' });
   
   try {
+    // ИСПРАВЛЕНО: Используем правильную модель gemini-2.5-flash
     const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
     
     // Брендированный промпт под экосистему Mira
