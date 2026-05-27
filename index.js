@@ -4,7 +4,7 @@ const TelegramBot = require('node-telegram-bot-api');
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true }); 
 console.log("БОТ ЗАПУЩЕН"); 
 
-// База данных игроков в оперативной памяти (для сброса при перезапуске)
+// База данных игроков в оперативной памяти
 const usersState = {};
 
 const memes = [ 
@@ -34,12 +34,19 @@ bot.onText(/\/start/, (msg) => {
   sendMainMenu(msg.chat.id);
 });
 
+bot.onText(/\/meme/, (msg) => {
+  const random = memes[Math.floor(Math.random() * memes.length)];
+  bot.sendMessage(msg.chat.id, random);
+});
+
+// Обработка нажатий на inline-кнопки
 bot.on('callback_query', (callbackQuery) => {
   const msg = callbackQuery.message;
   const chatId = msg.chat.id;
   const data = callbackQuery.data;
 
-  bot.answerCallbackQuery(callbackQuery.id);
+  // Убираем часики загрузки на кнопке
+  bot.answerCallbackQuery(callbackQuery.id).catch(() => {});
 
   // Кнопка обычного мема
   if (data === 'get_meme') {
@@ -47,7 +54,7 @@ bot.on('callback_query', (callbackQuery) => {
     return bot.sendMessage(chatId, random);
   }
 
-  // Начать квест (Инициализация игрока)
+  // Начать квест
   if (data === 'start_quest') {
     usersState[chatId] = {
       step: 1,
@@ -64,7 +71,7 @@ bot.on('callback_query', (callbackQuery) => {
       }
     };
     
-    bot.sendMessage(chatId, "🎮 **ИТ-СИМУЛЯТОР: ШАГ 1**\n\n🕒 3 часа ночи. Завтра дедлайн MVP / сдачи лабы. Дизайнер ушел в запой, проджект менеджер плачет в углу. Твои действия?", { parse_mode: 'Markdown', ...opts });
+    return bot.sendMessage(chatId, "🎮 **ИТ-СИМУЛЯТОР: ШАГ 1**\n\n🕒 3 часа ночи. Завтра дедлайн MVP / сдачи лабы. Дизайнер ушел в запой, проджект менеджер плачет в углу. Твои действия?", { parse_mode: 'Markdown', ...opts });
   }
 
   // Результат Ситуации 1
@@ -92,6 +99,7 @@ bot.on('callback_query', (callbackQuery) => {
       };
       bot.sendMessage(chatId, "🎮 **ИТ-СИМУЛЯТОР: ШАГ 2**\n\n📐 Заказчик или препод просит \"поиграть со шрифтами\" и переписать ТЗ в пятый раз за день. Что делаешь?", { parse_mode: 'Markdown', ...opts });
     }, 1500);
+    return;
   }
 
   // Результат Ситуации 2 -> Финал
@@ -103,11 +111,12 @@ bot.on('callback_query', (callbackQuery) => {
       bot.sendMessage(chatId, "😭 Ты потратил кучу нервов, доказывая правоту. Шрифт остался прежним, но ты истощен.\n💔 Здоровье: -50 HP");
     } else {
       usersState[chatId].score += 50;
-      bot.sendMessage(chatId, "⚡ ИИ в Mira пересобрал план за секунду. Заказчик доволен, ты спокоен!\n🚀 Продуктивность: +50 очков");
+      bot.sendMessage(chatId, "⚡ ИИ в Mira пересобрал план за секунду. Заказчик доволен, ты спокоем!\n🚀 Продуктивность: +50 очков");
     }
 
     // Расчет финала
     setTimeout(() => {
+      if (!usersState[chatId]) return;
       const finalHp = usersState[chatId].hp;
       const finalScore = usersState[chatId].score;
       
@@ -122,21 +131,33 @@ bot.on('callback_query', (callbackQuery) => {
         status = "💀 ТИМЛИД-ВЫГОРАШ (10% выживаемости)";
       }
 
-      // Гроу-хакинг и виральный шеринг
       const finalOpts = {
         reply_markup: {
           inline_keyboard: [
             [{ text: '🔥 Активировать 1 месяц Mira Pro', url: 'https://t.me' }],
-            [{ text: '📢 Поделиться результатом с командой', switch_inline_query: `Я прошел ИТ-симулятор и получил статус: ${status}. Проверь себя здесь!` }]
+            [{ text: '📢 Поделиться результатом', switch_inline_query: `Я прошел ИТ-симулятор и получил статус: ${status}. Проверить себя: ` }]
           ]
         }
       };
 
       bot.sendMessage(chatId, `🏁 **ФИНАЛ ИГРЫ**\n\n🏆 Твой мемный статус: **${status}**\n\n🛡️ Оставшееся здоровье: ${finalHp} HP\n📈 Очки продуктивности: ${finalScore}\n\n🤖 *Гайд по выживанию:*\nТвой проект выжил, но без нормальных инструментов долго не протянуть. Жми кнопку ниже, запускай экосистему Mira с промокодом **MIRAGROWTH2026**, и твоя продуктивность улетит в космос!`, { parse_mode: 'Markdown', ...finalOpts });
       
-      // Очищаем стейт игрока после финала
       delete usersState[chatId];
     }, 1500);
+    return;
+  }
+
+  // МИНИ-ИГРА: Проверка ответа (ИСПРАВЛЕНО ТУТ)
+  if (data.startsWith('guess_')) {
+    const parts = data.split('_'); 
+    const userGuess = parseInt(parts[1]); // Берём 1-й элемент массива
+    const correctAnswer = parseInt(parts[2]); // Берём 2-й элемент массива
+
+    if (userGuess === correctAnswer) {
+      bot.sendMessage(chatId, `🎉 Ура! Вы угадали! Это было число ${correctAnswer}. Вы чертовски везучий!`);
+    } else {
+      bot.sendMessage(chatId, `❌ Не угадали! Я загадал число ${correctAnswer}. Попробуйте ещё раз в меню игр!`);
+    }
   }
 });
 
