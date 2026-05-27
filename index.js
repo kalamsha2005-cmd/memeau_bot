@@ -3,18 +3,28 @@ const TelegramBot = require('node-telegram-bot-api');
 const { GoogleGenerativeAI } = require('@google/generative-ai'); 
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true }); 
-console.log("БОТ ЗАПУЩЕН С УДОБНЫМ МЕНЮ"); 
+console.log("БОТ ЗАПУЩЕН С ИИ, МЕНЮ И КАРТИНКАМИ"); 
 
 const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY);
 const usersState = {};
 
-// Настройка синей кнопки "Меню" в углу Telegram (вызывается один раз при старте)
+// Ссылки на мемные картинки для квеста
+const IMAGES = {
+  welcome: 'https://unsplash.com', // Стартовая IT-атмосфера
+  thinking: 'https://giphy.com', // ИИ думает
+  fail: 'https://imgflip.com', // Мем "Всё горит, а я ок" (Fine)
+  success: 'https://imgflip.com', // Мем с Мега-мозгом
+  winStatus: 'https://imgflip.com', // Успешный Гига-Фаундер
+  loseStatus: 'https://imgflip.com' // Выгоревший программист
+};
+
+// Настройка меню команд в углу
 bot.setMyCommands([
   { command: '/start', description: 'Перезапустить бота и открыть меню' },
   { command: '/meme', description: 'Сгенерировать случайный ИИ-мем' }
 ]);
 
-// Функция отправки главного меню с БОЛЬШИМИ удобными кнопками вниз экрана
+// Главное меню с большими кнопками
 function sendMainMenu(chatId) {
   const opts = {
     reply_markup: {
@@ -22,14 +32,16 @@ function sendMainMenu(chatId) {
         [{ text: '🎮 Начать ИИ-Симулятор' }],
         [{ text: '🤖 Спросить ИИ Mira' }]
       ],
-      resize_keyboard: true, // делает кнопки компактными под размер экрана
-      one_time_keyboard: false // кнопки не исчезнут после нажатия
+      resize_keyboard: true,
+      one_time_keyboard: false
     }
   };
-  bot.sendMessage(chatId, "Привет 😄 Я твой интерактивный ИИ-ассистент!\n\nИспользуй кнопки внизу экрана или команду /meme для управления:", opts);
+  bot.sendPhoto(chatId, IMAGES.welcome, {
+    caption: "Привет 😄 Я твой интерактивный ИИ-ассистент!\n\nИспользуй кнопки внизу экрана для управления бота:",
+    ...opts
+  });
 }
 
-// Слушаем текстовые команды и нажатия на обычные кнопки
 bot.on('message', async (msg) => {
   const chatId = msg.chat.id;
   const text = msg.text;
@@ -67,7 +79,7 @@ async function generateAndSendMeme(chatId) {
 
 // ГЕНЕРАЦИЯ СЮЖЕТА КВЕСТА ЧЕРЕЗ ИИ
 async function generateQuestStep(chatId) {
-  const loadingMsg = await bot.sendMessage(chatId, "⏳ *ИИ Mira придумывает для тебя испытание...*", { parse_mode: 'Markdown' });
+  const loadingMsg = await bot.sendAnimation(chatId, IMAGES.thinking, { caption: "⏳ *ИИ Mira придумывает для тебя испытание...*", parse_mode: 'Markdown' });
   try {
     const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
     const prompt = `Ты — ведущий геймдизайнер текстового квеста 'Симулятор выживания разработчика'. 
@@ -102,11 +114,11 @@ async function generateQuestStep(chatId) {
   } catch (e) {
     console.error(e);
     bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    bot.sendMessage(chatId, "💥 Ошибка создания шага квеста. Перезапустите через кнопку меню.");
+    bot.sendMessage(chatId, "💥 Ошибка создания шага. Нажмите кнопку меню ещё раз.");
   }
 }
 
-// Обработка инлайн-выбора внутри самого квеста
+// Обработка ответов
 bot.on('callback_query', async (callbackQuery) => {
   const msg = callbackQuery.message;
   const chatId = msg.chat.id;
@@ -117,12 +129,21 @@ bot.on('callback_query', async (callbackQuery) => {
   if (data === 'click_a' || data === 'click_b') {
     if (!usersState[chatId]) return sendMainMenu(chatId);
 
+    // Удаляем предыдущие кнопки, чтобы пользователь не нажал их дважды
+    bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chatId, messageId: msg.message_id }).catch(() => {});
+
     if (data === 'click_a') {
       usersState[chatId].hp -= 35;
-      bot.sendMessage(chatId, "💔 *Плохой выбор!*\nТы потратил кучу нервов, выгорел и потерял -35 HP.", { parse_mode: 'Markdown' });
+      await bot.sendPhoto(chatId, IMAGES.fail, { 
+        caption: "💔 *Плохой выбор!*\nТы потратил кучу нервов, выгорел и потерял -35 HP.", 
+        parse_mode: 'Markdown' 
+      });
     } else {
       usersState[chatId].score += 50;
-      bot.sendMessage(chatId, "🚀 *Отличный выбор!*\nИнструменты Mira помогли решить проблему! Ты получил +50 к продуктивности.", { parse_mode: 'Markdown' });
+      await bot.sendPhoto(chatId, IMAGES.success, { 
+        caption: "🚀 *Отличный выбор!*\nИнструменты Mira помогли решить проблему! Ты получил +50 к продуктивности.", 
+        parse_mode: 'Markdown' 
+      });
     }
 
     usersState[chatId].step += 1;
@@ -131,9 +152,24 @@ bot.on('callback_query', async (callbackQuery) => {
       if (usersState[chatId].step <= 3) {
         generateQuestStep(chatId);
       } else {
+        // Финал игры
         const finalHp = usersState[chatId].hp;
         const finalScore = usersState[chatId].score;
-        let status = (finalHp + finalScore >= 150) ? "👑 ГИГА-ФАУНДЕР" : (finalHp + finalScore >= 80) ? "🧠 СВЕРХСОЗНАНИЕ" : "💀 ТИМЛИД-ВЫГОРАШ";
+        const total = finalHp + finalScore;
+        
+        let status = "";
+        let finalImage = "";
+
+        if (total >= 150) {
+          status = "👑 ГИГА-ФАУНДЕР";
+          finalImage = IMAGES.winStatus;
+        } else if (total >= 80) {
+          status = "🧠 СВЕРХСОЗНАНИЕ";
+          finalImage = IMAGES.winStatus;
+        } else {
+          status = "💀 ТИМЛИД-ВЫГОРАШ";
+          finalImage = IMAGES.loseStatus;
+        }
 
         const finalOpts = {
           reply_markup: {
@@ -144,14 +180,18 @@ bot.on('callback_query', async (callbackQuery) => {
           }
         };
 
-        bot.sendMessage(chatId, `🏁 **ФИНАЛ ИГРЫ**\n\n🏆 Твой мемный статус: **${status}**\n\n🛡️ Здоровье: ${finalHp} HP\n📈 Продуктивность: ${finalScore}\n\n🤖 *Гайд по выживанию от @mira:*\nБез нормального таск-менеджера долго не протянуть. Запускай экосистему @mira с промокодом **MIRAGROWTH2026** и лети в космос!`, { parse_mode: 'Markdown', ...finalOpts });
+        bot.sendPhoto(chatId, finalImage, {
+          caption: `🏁 **ФИНАЛ ИГРЫ**\n\n🏆 Твой мемный статус: **${status}**\n\n🛡️ Здоровье: ${finalHp} HP\n📈 Продуктивность: ${finalScore}\n\n🤖 *Гайд по выживанию от @mira:*\nБез нормального таск-менеджера долго не протянуть. Запускай экосистему @mira с промокодом **MIRAGROWTH2026** и лети в космос!`,
+          parse_mode: 'Markdown',
+          ...finalOpts
+        });
+        
         delete usersState[chatId];
       }
     }, 2000);
   }
 });
 
-// Сервер-заглушка для Render
 const http = require('http');
 const server = http.createServer((req, res) => { res.writeHead(200); res.end('Bot is running!\n'); });
 server.listen(process.env.PORT || 3000, () => { console.log('Server running'); });
