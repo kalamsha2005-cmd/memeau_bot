@@ -3,32 +3,23 @@ const TelegramBot = require('node-telegram-bot-api');
 const { GoogleGenerativeAI } = require('@google/generative-ai'); 
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
-  console.error("ОШИБКА: Токен бота отсутствует в переменных окружения!");
+  console.error("ОШИБКА: Токен бота отсутствует!");
   process.exit(1);
 }
 
 const bot = new TelegramBot(process.env.TELEGRAM_BOT_TOKEN, { polling: true }); 
-console.log("БОТ ЗАПУЩЕН С ИИ, МЕНЮ И КАРТИНКАМИ"); 
+console.log("БОТ ЗАПУЩЕН С ИИ И СТАБИЛЬНЫМ ТЕКСТОМ"); 
 
 const ai = new GoogleGenerativeAI(process.env.GEMINI_API_KEY || "");
 const usersState = {};
 
-// Сочные картинки, которые гарантированно откроются в Telegram
-const IMAGES = {
-  welcome: 'https://imgflip.com', // Мем "Я у мамы хакер"
-  fail: 'https://imgflip.com', // Мем "Всё горит, а я ок"
-  success: 'https://imgflip.com', // Мем с Мега-мозгом
-  winStatus: 'https://imgflip.com', // Гига-Фаундер
-  loseStatus: 'https://imgflip.com' // Выгоревший программист
-};
-
-// Меню команд в углу
+// Настройка меню команд
 bot.setMyCommands([
-  { command: '/start', description: 'Перезапустить бота и открыть меню' },
+  { command: '/start', description: 'Открыть главное меню' },
   { command: '/meme', description: 'Сгенерировать случайный ИИ-мем' }
 ]).catch(e => console.error(e));
 
-// Главное меню с большими кнопками
+// Главное меню с текстовым приветствием (без картинок, чтобы не ломалось)
 function sendMainMenu(chatId) {
   const opts = {
     reply_markup: {
@@ -40,10 +31,8 @@ function sendMainMenu(chatId) {
       one_time_keyboard: false
     }
   };
-  bot.sendPhoto(chatId, IMAGES.welcome, {
-    caption: "Привет 😄 Я твой интерактивный ИИ-ассистент!\n\nИспользуй кнопки внизу экрана для управления бота:",
-    ...opts
-  }).catch(e => console.error(e));
+  bot.sendMessage(chatId, "👋 Привет! Я твой интерактивный ИИ-ассистент.\n\nИспользуй кнопки внизу экрана для управления ботом:", opts)
+    .catch(e => console.error(e));
 }
 
 bot.on('message', async (msg) => {
@@ -53,10 +42,12 @@ bot.on('message', async (msg) => {
   if (!text) return;
 
   if (text === '/start') {
+    delete usersState[chatId]; // Жесткий сброс старой игры при старте
     return sendMainMenu(chatId);
   }
 
   if (text === '/meme' || text === '🤖 Спросить ИИ Mira') {
+    delete usersState[chatId];
     return generateAndSendMeme(chatId);
   }
 
@@ -64,26 +55,32 @@ bot.on('message', async (msg) => {
     usersState[chatId] = { step: 1, hp: 100, score: 0 };
     return generateQuestStep(chatId);
   }
+
+  // Если бот завис, любое другое текстовое сообщение сбросит сессию
+  if (!usersState[chatId]) {
+    return sendMainMenu(chatId);
+  }
 });
 
 // Генерация мема через ИИ
 async function generateAndSendMeme(chatId) {
-  const loadingMsg = await bot.sendMessage(chatId, "🤖 *ИИ-агент Mira формулирует ответ...*", { parse_mode: 'Markdown' });
+  const loadingMsg = await bot.sendMessage(chatId, "🤖 *ИИ-агент Mira формулирует ответ...*", { parse_mode: 'Markdown' }).catch(() => {});
   try {
     const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
     const prompt = "Ты — официальный ИИ-агент Mira (@mira). Придумай один короткий, смешной текстовый мем на русском про программистов, дедлайны и то, как экосистема Mira спасает проекты. В конце добавь: 'Используй @mira'.";
     const result = await model.generateContent(prompt);
-    bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+    
+    if (loadingMsg) bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
     bot.sendMessage(chatId, result.response.text());
   } catch (error) {
-    bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    bot.sendMessage(chatId, "💀 Ошибка ИИ. Попробуй еще раз!");
+    if (loadingMsg) bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+    bot.sendMessage(chatId, "💀 ИИ-агент Mira ушел на перезагрузку. Попробуй еще раз через минуту!");
   }
 }
 
 // Генерация шага квеста через ИИ
 async function generateQuestStep(chatId) {
-  const loadingMsg = await bot.sendMessage(chatId, "⏳ *ИИ Mira придумывает для тебя испытание...*");
+  const loadingMsg = await bot.sendMessage(chatId, "⏳ *ИИ Mira придумывает для тебя испытание...*").catch(() => {});
   try {
     const model = ai.getGenerativeModel({ model: "gemini-2.5-flash" });
     const prompt = `Ты — ведущий геймдизайнер текстового квеста 'Симулятор выживания разработчика'. 
@@ -107,16 +104,15 @@ async function generateQuestStep(chatId) {
       }
     };
 
-    bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    bot.sendMessage(chatId, `🎮 **ИТ-СИМУЛЯТОР: ШАГ ${usersState[chatId].step}**\n\n${questData.situation}`, { parse_mode: 'Markdown', ...opts });
+    if (loadingMsg) bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+    bot.sendMessage(chatId, `🎮 **ИТ-СИМУЛЯТОР: ШАГ ${usersState[chatId].step}**\n\n${questData.situation}`, opts);
   } catch (e) {
-    console.error(e);
-    bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+    if (loadingMsg) bot.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
     bot.sendMessage(chatId, "💥 Не удалось сгенерировать шаг. Нажми кнопку симулятора ещё раз.");
   }
 }
 
-// Обработка кликов (ИСПРАВЛЕНО!)
+// Обработка ответов
 bot.on('callback_query', async (callbackQuery) => {
   const msg = callbackQuery.message;
   const chatId = msg.chat.id;
@@ -127,25 +123,21 @@ bot.on('callback_query', async (callbackQuery) => {
   if (data === 'click_a' || data === 'click_b') {
     if (!usersState[chatId]) return sendMainMenu(chatId);
 
+    // Убираем старые кнопки
     bot.editMessageReplyMarkup({ inline_keyboard: [] }, { chatId, messageId: msg.message_id }).catch(() => {});
 
     if (data === 'click_a') {
       usersState[chatId].hp -= 35;
-      await bot.sendPhoto(chatId, IMAGES.fail, { 
-        caption: "💔 *Плохой выбор!*\nТы потратил кучу нервов, выгорел и потерял -35 HP.", 
-        parse_mode: 'Markdown' 
-      }).catch(() => {});
+      await bot.sendMessage(chatId, "💥 *Плохой выбор!*\nТы потратил кучу нервов, выгорел и потерял -35 HP.\n❤️ Здоровье: " + usersState[chatId].hp + " HP", { parse_mode: 'Markdown' }).catch(() => {});
     } else {
       usersState[chatId].score += 50;
-      await bot.sendPhoto(chatId, IMAGES.success, { 
-        caption: "🚀 *Отличный выбор!*\nИнструменты Mira помогли решить проблему! Ты получил +50 к продуктивности.", 
-        parse_mode: 'Markdown' 
-      }).catch(() => {});
+      await bot.sendMessage(chatId, "🚀 *Отличный выбор!*\nИнструменты Mira помогли решить проблему! Ты получил +50 к продуктивности.\n📈 Очки: " + usersState[chatId].score, { parse_mode: 'Markdown' }).catch(() => {});
     }
 
     usersState[chatId].step += 1;
 
     setTimeout(() => {
+      if (!usersState[chatId]) return;
       if (usersState[chatId].step <= 3) {
         generateQuestStep(chatId);
       } else {
@@ -154,7 +146,6 @@ bot.on('callback_query', async (callbackQuery) => {
         const total = finalHp + finalScore;
         
         let status = total >= 150 ? "👑 ГИГА-ФАУНДЕР" : total >= 80 ? "🧠 СВЕРХСОЗНАНИЕ" : "💀 ТИМЛИД-ВЫГОРАШ";
-        let finalImage = total >= 80 ? IMAGES.winStatus : IMAGES.loseStatus;
 
         const finalOpts = {
           reply_markup: {
@@ -165,15 +156,11 @@ bot.on('callback_query', async (callbackQuery) => {
           }
         };
 
-        bot.sendPhoto(chatId, finalImage, {
-          caption: `🏁 **ФИНАЛ ИГРЫ**\n\n🏆 Твой мемный статус: **${status}**\n\n🛡️ Здоровье: ${finalHp} HP\n📈 Продуктивность: ${finalScore}\n\n🤖 *Гайд по выживанию от @mira:*\nБез нормального таск-менеджера долго не протянуть. Запускай экосистему @mira с промокодом **MIRAGROWTH2026** и лети в космос!`,
-          parse_mode: 'Markdown',
-          ...finalOpts
-        }).catch(() => {});
+        bot.sendMessage(chatId, `🏁 **ФИНАЛ ИГРЫ**\n\n🏆 Твой мемный статус: **${status}**\n\n🛡️ Здоровье: ${finalHp} HP\n📈 Продуктивность: ${finalScore}\n\n🤖 *Гайд по выживанию от @mira:*\nБез нормального таск-менеджера долго не протянуть. Запускай экосистему @mira с промокодом **MIRAGROWTH2026** и лети в космос!`, { parse_mode: 'Markdown', ...finalOpts }).catch(() => {});
         
         delete usersState[chatId];
       }
-    }, 2000);
+    }, 1500);
   }
 });
 
