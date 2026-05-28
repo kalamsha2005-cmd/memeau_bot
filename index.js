@@ -1,6 +1,5 @@
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
-// 1. Импортируем сам класс GoogleGenAI
 const { GoogleGenAI } = require('@google/generative-ai'); 
 const http = require('http');
 
@@ -8,40 +7,26 @@ if (!process.env.TELEGRAM_BOT_TOKEN) { console.error("Нет TELEGRAM_BOT_TOKEN"
 if (!process.env.GEMINI_API_KEY) { console.error("Нет GEMINI_API_KEY"); process.exit(1); }
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-
-// 2. ИСПРАВЛЕННЫЙ ВАРИАНТ ИНИЦИАЛИЗАЦИИ (вызываем класс БЕЗ оператора `new`)
 const genAI = GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
-
-// 3. Создаем модель
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
+// МЫ ОСТАВИЛИ ТОЛЬКО ОДНО ОБЪЯВЛЕНИЕ ЭТИХ ПЕРЕМЕННЫХ:
 const usersState = {};
 const userCooldown = {};
 const AI_TIMEOUT = 15000;
 
 console.log("БОТ ИНИЦИАЛИЗИРОВАН!");
 
-const usersState = {};
-const userCooldown = {};
-const AI_TIMEOUT = 15000;
-
-console.log("БОТ ИНИЦИАЛИЗИРОВАН!");
-
-// Вспомогательная функция таймаута
 function withTimeout(promise, timeoutMs) {
   return Promise.race([
     promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Timeout")), timeoutMs)
-    )
+    new Promise((_, reject) => setTimeout(() => reject(new Error("Timeout")), timeoutMs))
   ]);
 }
 
-// Восстановленная функция askGemini
 async function askGemini(userQuestion) {
   try {
     const systemInstruction = "Ты — Mira, продвинутый ИИ-ассистент в Telegram-боте. Ты общаешься с IT-юмором, дружелюбно и профессионально.";
-    
     const result = await withTimeout(
       model.generateContent({
         contents: [{ role: 'user', parts: [{ text: userQuestion }] }],
@@ -49,12 +34,11 @@ async function askGemini(userQuestion) {
       }),
       AI_TIMEOUT
     );
-
     const response = await result.response;
     return response.text();
   } catch (error) {
     console.error("ПОЛНЫЙ ЛОГ ОШИБКИ GEMINI:", error);
-    return "🚨 Ошибка Gemini API. Возможно, не задан GEMINI_API_KEY в Environment Variables или лимиты исчерпаны.";
+    return "🚨 Ошибка Gemini API. Проверьте переменные окружения.";
   }
 }
 
@@ -74,18 +58,10 @@ async function generateMemeDataFromGemini(userMemeRequest) {
   }
 }
 
-// =========================
-// Команды
-// =========================
-
 bot.telegram.setMyCommands([
   { command: 'start', description: 'Открыть главное меню' },
   { command: 'meme', description: 'Сгенерировать ИИ-мем' }
 ]);
-
-// =========================
-// Главное меню
-// =========================
 
 async function sendMainMenu(ctx) {
   try {
@@ -103,42 +79,19 @@ async function sendMainMenu(ctx) {
       ...Markup.keyboard([
         ['🎮 Начать ИИ-Симулятор'],
         ['🤖 Спросить ИИ Mira']
-      ])
-      .resize()
-      .persistent()
+      ]).resize().persistent()
     });
-
-    console.log(`[Menu] Приветствие успешно отправлено для ${ctx.chat.id}`);
-  } catch (e) {
-    console.error("[Menu Error]", e);
-  }
+  } catch (e) { console.error("[Menu Error]", e); }
 }
 
-// =========================
-// START / MEME COMMANDS
-// =========================
-
-bot.start(async (ctx) => {
-  const chatId = ctx.chat.id;
-  delete usersState[chatId];
-  await sendMainMenu(ctx);
-});
-
-bot.command('meme', async (ctx) => {
-  const chatId = ctx.chat.id;
-  delete usersState[chatId];
-  await generateAndSendMeme(ctx);
-});
-
-// =========================
-// TEXT HANDLERS
-// =========================
+bot.start(async (ctx) => { delete usersState[ctx.chat.id]; await sendMainMenu(ctx); });
+bot.command('meme', async (ctx) => { delete usersState[ctx.chat.id]; await generateAndSendMeme(ctx); });
 
 bot.hears('🤖 Спросить ИИ Mira', async (ctx) => {
   const chatId = ctx.chat.id;
   if (!usersState[chatId]) usersState[chatId] = { hp: 100, score: 0, step: 1 };
   usersState[chatId].isWaitingForQuestion = true;
-  await ctx.reply('🤖 Я готова! Напиши свой вопрос, или попроси меня сгенерировать IT-мем/картинку (например: "сгенерируй мем про дедлайн").');
+  await ctx.reply('🤖 Я готова! Напиши свой вопрос или попроси мем.');
 });
 
 bot.hears('🎮 Начать ИИ-Симулятор', async (ctx) => {
@@ -152,30 +105,24 @@ bot.on('text', async (ctx) => {
   const userText = ctx.message.text;
   const userTextLower = userText.toLowerCase();
 
-  if (!usersState[chatId]) {
-    usersState[chatId] = { hp: 100, score: 0, step: 1, isWaitingForQuestion: false };
-  }
+  if (!usersState[chatId]) usersState[chatId] = { hp: 100, score: 0, step: 1, isWaitingForQuestion: false };
 
-  // Приоритет для системных кнопок меню
-  if (userText.startsWith('/') || userTextLower.includes('симулятор') || userTextLower.includes('мем') || userTextLower.includes('спросить') || userTextLower.includes('старт') || userText.includes('🎮') || userText.includes('🤖') || userText.includes('❤️')) {
+  if (userText.startsWith('/') || userTextLower.includes('симулятор') || userTextLower.includes('мем') || userTextLower.includes('спросить') || userTextLower.includes('старт') || userText.includes('🎮') || userText.includes('🤖')) {
     usersState[chatId].isWaitingForQuestion = false; 
     return; 
   }
 
-  // Логика свободного текстового ввода для ИИ
   if (usersState[chatId].isWaitingForQuestion) {
     try {
-      if (userTextLower.includes('картинка') || userTextLower.includes('нарисуй') || userTextLower.includes('сгенерируй') || userTextLower.includes('дорисуй')) {
+      if (userTextLower.includes('картинка') || userTextLower.includes('нарисуй') || userTextLower.includes('сгенерируй')) {
         await ctx.sendChatAction('typing');
         const memeData = await generateMemeDataFromGemini(userText);
         await ctx.sendChatAction('upload_photo');
-
         const encodedPrompt = encodeURIComponent(memeData.englishPrompt);
-        // Исправлена интерполяция строки (добавлен знак доллара $)
         const imageUrl = `https://pollinations.ai/p/${encodedPrompt}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000)}`;
 
         await ctx.replyWithPhoto(imageUrl, {
-          caption: `🚀 **Ваш интерактивный мем готов!**\n\n🎯 *Запрос:* "${userText}"\n\n💬 **Шутка от Mira:**\n_${memeData.russianJoke}_\n\n🤖 _(ИИ сгенерировал сцену: ${memeData.englishPrompt})_`,
+          caption: `🚀 **Мем готов!**\n\n💬 **Шутка:**\n_${memeData.russianJoke}_`,
           parse_mode: 'Markdown'
         });
       } else {
@@ -184,218 +131,76 @@ bot.on('text', async (ctx) => {
         await ctx.reply(aiResponse);
       }
     } catch (error) {
-      console.error("Ошибка ИИ режима:", error);
-      await ctx.reply("🚨 Произошла ошибка ИИ. Попробуйте еще раз.");
+      await ctx.reply("🚨 Ошибка ИИ.");
       usersState[chatId].isWaitingForQuestion = false;
     }
-    return;
   }
 });
 
-// =========================
-// Meme Generator
-// =========================
-
 async function generateAndSendMeme(ctx) {
   const chatId = ctx.chat.id;
-
-  if (userCooldown[chatId] && Date.now() - userCooldown[chatId] < 2000) {
-    return ctx.reply("⏳ Слишком быстро! Подожди пару секунд.");
-  }
+  if (userCooldown[chatId] && Date.now() - userCooldown[chatId] < 2000) return ctx.reply("⏳ Подождите...");
   userCooldown[chatId] = Date.now();
-
-  let loadingMsg;
+  let loadingMsg = await ctx.reply("🤖 ИИ Mira думает...");
   try {
-    loadingMsg = await ctx.reply("🤖 ИИ-агент Mira формулирует ответ...");
-
-    const prompt = `Ты — официальный ИИ-агент Mira (@mira). Придумай короткий смешной мем на русском про программистов, дедлайны и экосистему Mira. В конце добавь: "Используй @mira"`;
-
-    const result = await withTimeout(
-      model.generateContent(prompt),
-      AI_TIMEOUT
-    );
-
+    const result = await withTimeout(model.generateContent(`Придумай мем про IT на русском.`), AI_TIMEOUT);
     await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
     await ctx.reply(result.response.text());
-
   } catch (error) {
-    console.error("[Meme Error]", error);
-    if (loadingMsg) {
-      await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    }
-    const msg = error.message === "Timeout" ? "⏰ ИИ слишком долго думает" : "💀 ИИ Mira ушел на перезагрузку";
-    await ctx.reply(msg);
+    if (loadingMsg) await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+    await ctx.reply("💥 Ошибка");
   }
 }
-
-// =========================
-// Quest Generator
-// =========================
 
 async function generateQuestStep(ctx) {
   const chatId = ctx.chat.id;
-
-  if (userCooldown[chatId] && Date.now() - userCooldown[chatId] < 2000) {
-    return ctx.reply("⏳ Подожди пару секунд.");
-  }
-  userCooldown[chatId] = Date.now();
-
-  let loadingMsg;
+  let loadingMsg = await ctx.reply("⏳ ИИ придумывает квест...");
   try {
-    loadingMsg = await ctx.reply("⏳ ИИ Mira придумывает испытание...");
-
-    const prompt = `Ты — геймдизайнер текстового ИТ-квеста. Сгенерируй одну стрессовую ИТ-ситуацию. Верни ТОЛЬКО JSON объекта без форматирования markdown: {"situation":"...", "text_a":"...", "text_b":"..."}`;
-
-    const result = await withTimeout(
-      model.generateContent(prompt),
-      AI_TIMEOUT
-    );
-
+    const result = await withTimeout(model.generateContent(`Верни JSON квеста: {"situation":"...", "text_a":"...", "text_b":"..."}`), AI_TIMEOUT);
     let cleanText = result.response.text().replace(/```json|```/gi, "").trim();
-    let questData;
+    let questData = JSON.parse(cleanText);
 
-    try {
-      questData = JSON.parse(cleanText);
-      if (!questData.situation || !questData.text_a || !questData.text_b) {
-        throw new Error("Invalid JSON");
-      }
-    } catch (e) {
-      console.error("[Quest Parse Error]", cleanText);
-      questData = {
-        situation: "🔥 Срочный баг в production!",
-        text_a: "Патчить без тестов",
-        text_b: "Использовать Mira"
-      };
-    }
-
-    if (!usersState[chatId]) {
-      usersState[chatId] = { hp: 100, score: 0, step: 1 };
-    }
     usersState[chatId].currentQuest = questData;
+    if (loadingMsg) await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
 
-    if (loadingMsg) {
-      await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    }
-
-    await ctx.reply(
-      `🎮 ИТ-СИМУЛЯТОР: ШАГ ${usersState[chatId].step}\n\n${questData.situation}`,
-      Markup.inlineKeyboard([
-        [Markup.button.callback(`A: ${questData.text_a}`, 'click_a')],
-        [Markup.button.callback(`B: ${questData.text_b}`, 'click_b')]
-      ])
-    );
-
+    await ctx.reply(`🎮 ШАГ ${usersState[chatId].step}\n\n${questData.situation}`, Markup.inlineKeyboard([
+      [Markup.button.callback(`A: ${questData.text_a}`, 'click_a')],
+      [Markup.button.callback(`B: ${questData.text_b}`, 'click_b')]
+    ]));
   } catch (e) {
-    console.error("[Quest Error]", e);
-    if (loadingMsg) {
-      await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
-    }
-    const msg = e.message === "Timeout" ? "⏰ ИИ слишком долго думает" : "💥 Ошибка генерации";
-    await ctx.reply(msg);
+    if (loadingMsg) await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
+    await ctx.reply("💥 Ошибка генерации шага");
   }
 }
-
-// =========================
-// CALLBACKS
-// =========================
 
 bot.action(['click_a', 'click_b'], async (ctx) => {
   const chatId = ctx.chat.id;
   const action = ctx.match[0];
-
   await ctx.answerCbQuery().catch(() => {});
-
-  if (!usersState[chatId]) {
-    return sendMainMenu(ctx);
-  }
-
-  if (usersState[chatId].locked) return;
+  if (!usersState[chatId] || usersState[chatId].locked) return;
   usersState[chatId].locked = true;
 
-  let responseText = "";
-  if (action === 'click_a') {
-    usersState[chatId].hp -= 35;
-    responseText = `💥 Плохой выбор!\n\n-35 HP\n❤️ HP: ${usersState[chatId].hp}`;
-  } else {
-    usersState[chatId].score += 50;
-    responseText = `🚀 Отличный выбор!\n\n+50 продуктивности\n📈 Очки: ${usersState[chatId].score}`;
-  }
-
-  try {
-    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
-  } catch (e) {
-    console.log("[Edit Error]", e.message);
-  }
-
+  let responseText = action === 'click_a' ? "💥 Не повезло!" : "🚀 Отличный выбор!";
   await ctx.reply(responseText);
   usersState[chatId].step += 1;
 
   setTimeout(async () => {
     if (!usersState[chatId]) return;
     usersState[chatId].locked = false;
-
-    if (usersState[chatId].step <= 3) {
-      await generateQuestStep(ctx);
-    } else {
-      await finishGame(ctx);
-    }
+    if (usersState[chatId].step <= 3) await generateQuestStep(ctx);
+    else await finishGame(ctx);
   }, 1500);
 });
 
-// =========================
-// Finish Game
-// =========================
-
 async function finishGame(ctx) {
-  const chatId = ctx.chat.id;
-  if (!usersState[chatId]) return;
-
-  const finalHp = usersState[chatId].hp;
-  const finalScore = usersState[chatId].score;
-  const total = finalHp + finalScore;
-
-  let status = total >= 150 ? "👑 ГИГА-ФАУНДЕР" : total >= 80 ? "🧠 СВЕРХСОЗНАНИЕ" : "💀 ТИМЛИД-ВЫГОРАШ";
-
-  await ctx.reply(
-    `🏁 ФИНАЛ ИГРЫ\n\n🏆 Статус: ${status}\n\n❤️ HP: ${finalHp}\n📈 Очки: ${finalScore}`,
-    Markup.inlineKeyboard([
-      [Markup.button.url('🔥 Mira Pro', 'https://t.me')],
-      [Markup.button.switchToChat('📢 Поделиться', `Я получил статус ${status}`)]
-    ])
-  );
-
-  delete usersState[chatId];
+  await ctx.reply(`🏁 ФИНАЛ ИГРЫ!`);
+  delete usersState[ctx.chat.id];
 }
 
-// =========================
-// HTTP SERVER
-// =========================
+const server = http.createServer((req, res) => { res.writeHead(200); res.end('Bot running!\n'); });
+server.listen(process.env.PORT || 3000);
 
-const server = http.createServer((req, res) => {
-  res.writeHead(200);
-  res.end('Bot is running!\n');
-});
+bot.launch().then(() => console.log("Telegraf bot successfully started"));
 
-server.listen(process.env.PORT || 3000, () => {
-  console.log('Server running on port', process.env.PORT || 3000);
-});
-
-// =========================
-// Launch
-// =========================
-
-bot.launch().then(() => {
-  console.log("Telegraf bot successfully started");
-});
-
-// Процессы завершения кода...
-process.on('unhandledRejection', (reason) => { console.error('Unhandled Rejection:', reason); });
-process.on('uncaughtException', (error) => { console.error('Uncaught Exception:', error); });
-
-const shutdown = (signal) => {
-  console.log(`Stopping bot via ${signal}...`);
-  bot.stop(signal);
-  server.close(() => { process.exit(0); });
-};
-process.once('SIGINT', () => shutdown('SIGINT'));
-process.once('SIGTERM', () => shutdown('SIGTERM')); 
+process.on('unhandledRejection', (reason) => console.error(reason));
+process.on('uncaughtException', (error) => console.error(error));
