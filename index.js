@@ -21,7 +21,6 @@ console.log("БОТ ЗАПУЩЕН С TELEGRAF + GEMINI");
 // ПРАВИЛЬНЫЙ ВАРИАНТ:
 const { GoogleGenAI } = require('@google/genai');
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 // 1. Возвращаем простую текстовую функцию askGemini (без JSON требований)
 async function askGemini(userPrompt) {
