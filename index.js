@@ -172,24 +172,25 @@ bot.on('text', async (ctx) => {
     usersState[chatId] = { hp: 100, score: 0, step: 1, isWaitingForQuestion: false };
   }
 
-  // 2. ЖЕСТКАЯ ПРОВЕРКА НА КОМАНДЫ И КНОПКИ МЕНЮ (ПРИОРИТЕТ)
+  // 2. ЖЕСТКИЙ ПРИОРИТЕТ ДЛЯ КНОПОК МЕНЮ И КОМАНД
   if (userText.startsWith('/') ||
       userTextLower.includes('симулятор') ||
       userTextLower.includes('мем') ||
-      userTextLower.includes('спросить ии') ||
-      userTextLower.includes('старт')) {
+      userTextLower.includes('спросить') ||
+      userTextLower.includes('старт') ||
+      userText.includes('🎮') ||
+      userText.includes('🤖')) {
 
-    usersState[chatId].isWaitingForQuestion = false;
-    console.log(`[System Override] Пользователь ${chatId} вызвал меню/команду. Режим ИИ выключен.`);
-    return;
+    usersState[chatId].isWaitingForQuestion = false; // выключаем ИИ
+    console.log(`[Menu Redirect] Обнаружена системная кнопка: "${userText}". Пропускаем к bot.hears.`);
+    return; // позволяем bot.hears отработать
   }
 
-  // 3. ЕСЛИ ВКЛЮЧЕН РЕЖИМ ИИ И ЭТО ОБЫЧНЫЙ ТЕКСТ (НЕ КНОПКА)
+  // 3. ЛОГИКА ДЛЯ СВОБОДНОГО ВВОДА ИИ (если включен флаг)
   if (usersState[chatId].isWaitingForQuestion) {
     try {
       if (userTextLower.includes('картинка') || userTextLower.includes('нарисуй') || userTextLower.includes('сгенерируй') || userTextLower.includes('дорисуй')) {
         await ctx.sendChatAction('typing');
-
         const memeData = await generateMemeDataFromGemini(userText);
         await ctx.sendChatAction('upload_photo');
 
@@ -206,14 +207,15 @@ bot.on('text', async (ctx) => {
         await ctx.reply(aiResponse);
       }
     } catch (error) {
-      console.error("Ошибка внутри режима ИИ:", error);
-      await ctx.reply("🚨 Произошла ошибка. Режим ввода сброшен, попробуйте нажать кнопку заново.");
+      console.error("Ошибка ИИ режима:", error);
+      await ctx.reply("🚨 Произошла ошибка ИИ. Попробуйте еще раз.");
       usersState[chatId].isWaitingForQuestion = false;
     }
     return;
   }
 
-  // --- Здесь может оставаться твоя старая обработка обычного текста для шагов игры ---
+  // --- 4. Логика вашей игры/симулятора (если текст не кнопка и не ИИ запрос) ---
+  // Если у тебя тут обрабатывается ввод ответов игры без кнопок, оставь этот код здесь.
 });
 
 // =========================
