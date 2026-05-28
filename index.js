@@ -1,5 +1,6 @@
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
+// ИСПРАВЛЕНО: Достаем GoogleGenAI из пакета правильно
 const { GoogleGenAI } = require('@google/generative-ai'); 
 const http = require('http');
 
@@ -7,15 +8,16 @@ if (!process.env.TELEGRAM_BOT_TOKEN) { console.error("Нет TELEGRAM_BOT_TOKEN"
 if (!process.env.GEMINI_API_KEY) { console.error("Нет GEMINI_API_KEY"); process.exit(1); }
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-const genAI = GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
+
+// ИСПРАВЛЕНО: Правильный синтаксис создания клиента через new GoogleGenAI
+const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
-// МЫ ОСТАВИЛИ ТОЛЬКО ОДНО ОБЪЯВЛЕНИЕ ЭТИХ ПЕРЕМЕННЫХ:
 const usersState = {};
 const userCooldown = {};
 const AI_TIMEOUT = 15000;
 
-console.log("БОТ ИНИЦИАЛИЗИРОВАН!");
+console.log("БОТ ИНИЦИАЛИЗИРОВАН УСПЕШНО!");
 
 function withTimeout(promise, timeoutMs) {
   return Promise.race([
@@ -139,7 +141,7 @@ bot.on('text', async (ctx) => {
 
 async function generateAndSendMeme(ctx) {
   const chatId = ctx.chat.id;
-  if (userCooldown[chatId] && Date.now() - userCooldown[chatId] < 2000) return ctx.reply("⏳ Подождите...");
+  if (userCooldown[chatId] && Date.now() - userCooldown[chatId] < 2000) return ctx.reply("⏳  Подождите...");
   userCooldown[chatId] = Date.now();
   let loadingMsg = await ctx.reply("🤖 ИИ Mira думает...");
   try {
