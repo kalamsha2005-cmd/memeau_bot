@@ -40,6 +40,26 @@ async function askGemini(userPrompt) {
   }
 }
 
+async function generateMemePromptFromGemini(userMemeRequest) {
+  try {
+    const model = ai.getGenerativeModel({ model: "gemini-pro" });
+    const prompt = `
+You are a creative IT meme designer. The user wants a funny meme/picture about: "${userMemeRequest}".
+Create a funny, humorous visual scene for this meme.
+Describe this scene in detail in ENGLISH for an AI image generator (like Stable Diffusion/DALL-E).
+Keep it strictly under 50 words. Do NOT include any intro text like "Here is your prompt", output ONLY the English image description.
+Example of good output: "A funny cartoon of an exhausted programmer drinking 5 cups of coffee at a desk filled with server errors, vibrant comic book style"
+`;
+
+    const result = await model.generateContent(prompt);
+    const response = await result.response;
+    return response.text().trim();
+  } catch (error) {
+    console.error("Ошибка при генерации промпта мема:", error);
+    return "A funny computer developer with a broken laptop, digital art";
+  }
+}
+
 const usersState = {};
 const userCooldown = {};
 
@@ -153,14 +173,22 @@ bot.on('text', async (ctx) => {
     try {
       // ПРОВЕРКА: Если пользователь просит КАРТИНКУ или МЕМ
       if (userText.includes('мем') || userText.includes('картинка') || userText.includes('нарисуй') || userText.includes('сгенерируй')) {
+        // Показываем, что бот думает над идеей мема
+        await ctx.sendChatAction('typing');
+
+        // 1. Просим Gemini придумать смешной промпт на английском
+        const englishMemePrompt = await generateMemePromptFromGemini(ctx.message.text);
+        console.log("Сгенерированный промпт для мема:", englishMemePrompt);
+
+        // Показываем статус отправки фото
         await ctx.sendChatAction('upload_photo');
-        
-        // Берем текст пользователя, кодируем его для ссылки генератора картинок
-        const encodedPrompt = encodeURIComponent(text);
+        const promptForImage = englishMemePrompt || ctx.message.text;
+        const encodedPrompt = encodeURIComponent(promptForImage);
         const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000)}`;
 
-        await ctx.replyWithPhoto(imageUrl, { 
-          caption: `🚀 Вот твой мем по запросу: "${text}"\n\nСоздано ИИ Mira.` 
+        await ctx.replyWithPhoto(imageUrl, {
+          caption: `🚀 Вот твой мем по запросу: "${ctx.message.text}"\n\n💡 Идея от ИИ Mira: _${englishMemePrompt}_`,
+          parse_mode: 'Markdown'
         });
       } else {
         // ОБЫЧНЫЙ ТЕКСТ: Просто отправляем в Gemini
