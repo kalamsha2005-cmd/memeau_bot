@@ -1,18 +1,29 @@
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
 // ИСПРАВЛЕНО: Достаем GoogleGenAI из пакета правильно
-const { GoogleGenAI } = require('@google/generative-ai'); 
+require('dotenv').config();
+const { Telegraf, Markup } = require('telegraf');
 const http = require('http');
+
+// Универсальный импорт: берем новый класс GoogleGenAI, а если его нет - старый GoogleGenAI
+const GoogleAIModule = require('@google/generative-ai');
+const GoogleGenAI = GoogleAIModule.GoogleGenAI || GoogleAIModule.GoogleGenAI;
 
 if (!process.env.TELEGRAM_BOT_TOKEN) { console.error("Нет TELEGRAM_BOT_TOKEN"); process.exit(1); }
 if (!process.env.GEMINI_API_KEY) { console.error("Нет GEMINI_API_KEY"); process.exit(1); }
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 
-// ИСПРАВЛЕНО: Правильный синтаксис создания клиента через new GoogleGenAI
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
-const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+// Безопасная инициализация для любой версии SDK
+let genAI;
+if (typeof GoogleGenAI === 'function') {
+  genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
+} else {
+  // На случай совсем старых версий
+  genAI = new GoogleAIModule.GoogleGenAI(process.env.GEMINI_API_KEY);
+}
 
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 const usersState = {};
 const userCooldown = {};
 const AI_TIMEOUT = 15000;
