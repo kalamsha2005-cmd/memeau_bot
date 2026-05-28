@@ -164,64 +164,56 @@ bot.hears('🎮 Начать ИИ-Симулятор', async (ctx) => {
 
 bot.on('text', async (ctx) => {
   const chatId = ctx.chat.id;
-  const text = ctx.message.text;
-  const userText = text.toLowerCase(); // переводим в нижний регистр для проверки
+  const userText = ctx.message.text;
+  const userTextLower = userText.toLowerCase();
 
-  if (!text) return;
-
-  if (!usersState[chatId]) usersState[chatId] = { hp: 100, score: 0, step: 1 };
-
-  // Если пользователь решил нажать на системную кнопку меню, выходим из ИИ режима
-  if (text.startsWith('/') ||
-      text.includes('Начать ИИ-Симулятор') ||
-      text.includes('Генерировать мем')) {
-    usersState[chatId].isWaitingForQuestion = false; // выключаем режим ИИ
-    return;
-  }
-
-  // Игнорируем служебные кнопки/команды, чтобы они не улетали в ИИ
-  if (text.startsWith('/') ||
-      text.includes('ИИ-Симулятор') ||
-      text.includes('Спросить ИИ Mira')) {
-    return;
-  }
-
+  // 1. Инициализируем стейт пользователя, если его нет
   if (!usersState[chatId]) {
-    return sendMainMenu(ctx);
+    usersState[chatId] = { hp: 100, score: 0, step: 1, isWaitingForQuestion: false };
   }
 
-  // 2. Глобальный обработчик текста с умным разделением на ТЕКСТ / КАРТИНКУ
+  // 2. ЖЕСТКАЯ ПРОВЕРКА НА КОМАНДЫ И КНОПКИ МЕНЮ (ПРИОРИТЕТ)
+  if (userText.startsWith('/') ||
+      userTextLower.includes('симулятор') ||
+      userTextLower.includes('мем') ||
+      userTextLower.includes('спросить ии') ||
+      userTextLower.includes('старт')) {
+
+    usersState[chatId].isWaitingForQuestion = false;
+    console.log(`[System Override] Пользователь ${chatId} вызвал меню/команду. Режим ИИ выключен.`);
+    return;
+  }
+
+  // 3. ЕСЛИ ВКЛЮЧЕН РЕЖИМ ИИ И ЭТО ОБЫЧНЫЙ ТЕКСТ (НЕ КНОПКА)
   if (usersState[chatId].isWaitingForQuestion) {
     try {
-      // ПРОВЕРКА: Если пользователь просит КАРТИНКУ или МЕМ
-      if (userText.includes('мем') || userText.includes('картинка') || userText.includes('нарисуй') || userText.includes('сгенерируй')) {
+      if (userTextLower.includes('картинка') || userTextLower.includes('нарисуй') || userTextLower.includes('сгенерируй') || userTextLower.includes('дорисуй')) {
         await ctx.sendChatAction('typing');
 
-        // Получаем от новой модели и английский промпт, и русскую шутку
-        const memeData = await generateMemeDataFromGemini(ctx.message.text);
-        console.log("Сгенерированный промпт для мема:", memeData);
-
+        const memeData = await generateMemeDataFromGemini(userText);
         await ctx.sendChatAction('upload_photo');
+
         const encodedPrompt = encodeURIComponent(memeData.englishPrompt);
-        const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000)}`;
+        const imageUrl = `https://pollinations.ai{encodedPrompt}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000)}`;
 
         await ctx.replyWithPhoto(imageUrl, {
-          caption: `🎬 **Ваш интерактивный мем готов!**\n\n🎯 *Запрос:* "${ctx.message.text}"\n\n💬 **Шутка от Mira:**\n_${memeData.russianJoke}_\n\n🤖 _(ИИ сгенерировал сцену: ${memeData.englishPrompt})_`,
+          caption: `🚀 **Ваш интерактивный мем готов!**\n\n🎯 *Запрос:* "${userText}"\n\n💬 **Шутка от Mira:**\n_${memeData.russianJoke}_\n\n🤖 _(ИИ сгенерировал сцену: ${memeData.englishPrompt})_`,
           parse_mode: 'Markdown'
         });
       } else {
-        // ОБЫЧНЫЙ ТЕКСТ: Просто отправляем в Gemini
         await ctx.sendChatAction('typing');
-        const aiResponse = await askGemini(text);
+        const aiResponse = await askGemini(userText);
         await ctx.reply(aiResponse);
       }
     } catch (error) {
-      console.error("Ошибка обработчика:", error);
-      await ctx.reply("🚨 Ошибка при обработке. Попробуй еще раз.");
+      console.error("Ошибка внутри режима ИИ:", error);
+      await ctx.reply("🚨 Произошла ошибка. Режим ввода сброшен, попробуйте нажать кнопку заново.");
+      usersState[chatId].isWaitingForQuestion = false;
     }
-    // ВАЖНО: Мы БОЛЬШЕ НЕ ВЫКЛЮЧАЕМ флаг тут, чтобы сессия общения продолжалась!
     return;
   }
+
+  // --- Здесь может оставаться твоя старая обработка обычного текста для шагов игры ---
 });
 
 // =========================
