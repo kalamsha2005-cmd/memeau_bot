@@ -256,7 +256,17 @@ async function generateQuestStep(ctx) {
       };
     }
 
-    usersState[chatId].currentQuest = questData;
+    // Проверяем, существует ли пользователь в памяти. Если нет — создаем его структуру.
+if (!usersState[chatId]) {
+  usersState[chatId] = {
+    hp: 100,
+    score: 0,
+    step: 1
+  };
+}
+
+// Теперь это абсолютно безопасно, бот больше не упадет
+usersState[chatId].currentQuest = questData;
 
     if (loadingMsg) {
       await ctx.telegram.deleteMessage(
