@@ -26,7 +26,7 @@ const model = ai.getGenerativeModel({
 // 1. Возвращаем простую текстовую функцию askGemini (без JSON требований)
 async function askGemini(userPrompt) {
   try {
-    const genModel = ai.getGenerativeModel({ model: "gemini-pro" });
+    const genModel = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
 
     const systemInstruction = `Ты — Mira, продвинутый ИИ-ассистент в Telegram-боте. Ты общаешься с IT-юмором, дружелюбно и профессионально. Отвечай на вопрос пользователя.`;
 
@@ -35,28 +35,40 @@ async function askGemini(userPrompt) {
     const response = await result.response;
     return response.text();
   } catch (error) {
-    console.error("Критическая ошибка Gemini API:", error);
-    return "🚨 Ошибка ИИ-модели. Проверь GEMINI_API_KEY в панели Render!";
+    console.error("Критическая ошибка askGemini:", error);
+    return "🚨 Ошибка ИИ-модели. Проверь настройки на хостинге!";
   }
 }
 
-async function generateMemePromptFromGemini(userMemeRequest) {
+async function generateMemeDataFromGemini(userMemeRequest) {
   try {
-    const model = ai.getGenerativeModel({ model: "gemini-pro" });
+    const model = ai.getGenerativeModel({ model: "gemini-1.5-flash" });
     const prompt = `
-You are a creative IT meme designer. The user wants a funny meme/picture about: "${userMemeRequest}".
-Create a funny, humorous visual scene for this meme.
-Describe this scene in detail in ENGLISH for an AI image generator (like Stable Diffusion/DALL-E).
-Keep it strictly under 50 words. Do NOT include any intro text like "Here is your prompt", output ONLY the English image description.
-Example of good output: "A funny cartoon of an exhausted programmer drinking 5 cups of coffee at a desk filled with server errors, vibrant comic book style"
+User wants an IT meme about: "${userMemeRequest}".
+1. Create a detailed visual scene description for an AI image generator in ENGLISH (max 40 words).
+2. Create a funny, hilarious joke or caption for this meme in RUSSIAN.
+
+Output your response STRICTLY in this format, separated by "//" and nothing else:
+[English Image Prompt Here] // [Russian Meme Caption Here]
+
+Example:
+A funny cartoon of an exhausted programmer drinking 5 cups of coffee at a desk filled with red server errors, comic book style // Когда дедлайн уже завтра, а у тебя готов только дизайн кнопки "Выйти"
 `;
 
     const result = await model.generateContent(prompt);
     const response = await result.response;
-    return response.text().trim();
+    const parts = response.text().split('//');
+
+    return {
+      englishPrompt: parts[0] ? parts[0].trim() : "A funny programmer stressed at desk, digital art",
+      russianJoke: parts[1] ? parts[1].trim() : "Когда код не работает, а ты не знаешь почему..."
+    };
   } catch (error) {
-    console.error("Ошибка при генерации промпта мема:", error);
-    return "A funny computer developer with a broken laptop, digital art";
+    console.error("Ошибка при генерации данных мема:", error);
+    return {
+      englishPrompt: "A funny programmer stressed at desk, digital art",
+      russianJoke: "Дедлайн близко! Работаем в режиме ошпаренной кошки 🚀"
+    };
   }
 }
 
@@ -173,21 +185,18 @@ bot.on('text', async (ctx) => {
     try {
       // ПРОВЕРКА: Если пользователь просит КАРТИНКУ или МЕМ
       if (userText.includes('мем') || userText.includes('картинка') || userText.includes('нарисуй') || userText.includes('сгенерируй')) {
-        // Показываем, что бот думает над идеей мема
         await ctx.sendChatAction('typing');
 
-        // 1. Просим Gemini придумать смешной промпт на английском
-        const englishMemePrompt = await generateMemePromptFromGemini(ctx.message.text);
-        console.log("Сгенерированный промпт для мема:", englishMemePrompt);
+        // Получаем от новой модели и английский промпт, и русскую шутку
+        const memeData = await generateMemeDataFromGemini(ctx.message.text);
+        console.log("Сгенерированный промпт для мема:", memeData);
 
-        // Показываем статус отправки фото
         await ctx.sendChatAction('upload_photo');
-        const promptForImage = englishMemePrompt || ctx.message.text;
-        const encodedPrompt = encodeURIComponent(promptForImage);
+        const encodedPrompt = encodeURIComponent(memeData.englishPrompt);
         const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000)}`;
 
         await ctx.replyWithPhoto(imageUrl, {
-          caption: `🚀 Вот твой мем по запросу: "${ctx.message.text}"\n\n💡 Идея от ИИ Mira: _${englishMemePrompt}_`,
+          caption: `🎬 **Ваш интерактивный мем готов!**\n\n🎯 *Запрос:* "${ctx.message.text}"\n\n💬 **Шутка от Mira:**\n_${memeData.russianJoke}_\n\n🤖 _(ИИ сгенерировал сцену: ${memeData.englishPrompt})_`,
           parse_mode: 'Markdown'
         });
       } else {
