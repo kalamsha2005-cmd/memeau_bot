@@ -23,6 +23,39 @@ const model = ai.getGenerativeModel({
   model: "gemini-2.5-flash"
 });
 
+// Функция запроса к Gemini (собственная для "свободного ввода")
+async function askGemini(userPrompt) {
+  try {
+    const genModel = ai.getGenerativeModel({ model: "gemini-pro" });
+
+    const systemInstruction = `
+    Ты — Mira, продвинутый ИИ-ассистент в Telegram-боте. Ты общаешься с IT-юмором.
+    
+    КРИТИЧЕСКОЕ ПРАВИЛО ДЛЯ КАРТИНОК И МЕМОВ:
+    Если пользователь просит тебя: "покажи мем", "сгенерируй картинку", "пришли шутку в картинке" или просит любое визуальное изображение, ты обязана ответить СТРОГО в формате JSON без какого-либо лишнего текста вокруг.
+    Формат JSON:
+    {
+      "isImage": true,
+      "imagePrompt": "подробное описание картинки или IT-мема на АНГЛИЙСКОМ языке для нейросети-генератора"
+    }
+
+    Если пользователь задает ОБЫЧНЫЙ текстовый вопрос (без просьбы сгенерировать картинку/мем), отвечай как обычно — простым текстом.
+    `;
+
+    const fullPrompt = `${systemInstruction}\n\nВопрос пользователя: ${userPrompt}`;
+
+    const result = await withTimeout(
+      genModel.generateContent(fullPrompt),
+      AI_TIMEOUT
+    );
+
+    return result.response.text();
+  } catch (error) {
+    console.error("Ошибка Gemini API:", error);
+    return "🚨 ИИ-агент Mira временно перегружен запросами.";
+  }
+}
+
 const usersState = {};
 const userCooldown = {};
 
@@ -94,17 +127,21 @@ bot.command('meme', async (ctx) => {
 // TEXT
 // =========================
 
+// Обработчик нажатия на кнопку "Спросить ИИ Mira"
+bot.hears('🤖 Спросить ИИ Mira', async (ctx) => {
+  const chatId = ctx.chat.id;
+  if (!usersState[chatId]) usersState[chatId] = { hp: 100, score: 0, step: 1 };
+  usersState[chatId].isWaitingForQuestion = true;
+  await ctx.reply('🤖 Я готова! Напиши свой вопрос, или попроси меня сгенерировать IT-мем/картинку (например: "сгенерируй мем про дедлайн").');
+});
+
 bot.on('text', async (ctx) => {
   const chatId = ctx.chat.id;
   const text = ctx.message.text;
 
   if (!text) return;
 
-  if (text === '🤖 Спросить ИИ Mira') {
-    delete usersState[chatId];
-    return generateAndSendMeme(ctx);
-  }
-
+  // Начать симулятор
   if (text === '🎮 Начать ИИ-Симулятор') {
     usersState[chatId] = {
       step: 1,
@@ -115,8 +152,54 @@ bot.on('text', async (ctx) => {
     return generateQuestStep(ctx);
   }
 
+  // Игнорируем служебные кнопки/команды, чтобы они не улетали в ИИ
+  if (text.startsWith('/') ||
+      text.includes('ИИ-Симулятор') ||
+      text.includes('мем') ||
+      text.includes('Спросить ИИ Mira')) {
+    return;
+  }
+
   if (!usersState[chatId]) {
     return sendMainMenu(ctx);
+  }
+
+  // Обработка свободного ввода для ожидания ответа от ИИ
+  if (usersState[chatId].isWaitingForQuestion) {
+    try {
+      await ctx.sendChatAction('typing');
+      const aiResponse = await askGemini(text);
+
+      // Если ИИ вернул JSON для генерации картинки — попытаться распарсить и отправить изображение
+      const trimmed = aiResponse ? aiResponse.trim() : '';
+      if (trimmed.startsWith('{')) {
+        try {
+          const jsonData = JSON.parse(trimmed);
+          if (jsonData.isImage && jsonData.imagePrompt) {
+            const encodedPrompt = encodeURIComponent(jsonData.imagePrompt);
+            // Используем Pollinations быстрый эндпоинт (формат: image.pollinations.ai/prompt/{prompt})
+            const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000)}`;
+
+            await ctx.sendChatAction('upload_photo');
+            await ctx.replyWithPhoto(imageUrl, {
+              caption: `🚀 Вот твой мем по запросу: "${text}"\n\nСгенерировано по промпту: ${jsonData.imagePrompt}`
+            });
+            return;
+          }
+        } catch (jsonErr) {
+          console.log("Ответ не является валидным JSON, отправляем как обычный текст");
+        }
+      }
+
+      // Если это был обычный текст — просто отправляем ответ ИИ
+      await ctx.reply(aiResponse);
+    } catch (error) {
+      console.error("Ошибка при работе ИИ:", error);
+      await ctx.reply("🚨 Произошла ошибка. Попробуйте ещё раз.");
+    } finally {
+      usersState[chatId].isWaitingForQuestion = false;
+    }
+    return;
   }
 });
 
