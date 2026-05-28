@@ -19,6 +19,7 @@ const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
 console.log("БОТ ЗАПУЩЕН С TELEGRAF + GEMINI");
 
 // ПРАВИЛЬНЫЙ ВАРИАНТ:
+const { GoogleGenAI } = require('@google/genai');
 const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
