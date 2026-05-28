@@ -1,31 +1,57 @@
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
-// ВАЖНО: класс называется GoogleGenAI
+// Используем актуальный класс GoogleGenAI из библиотеки
 const { GoogleGenAI } = require('@google/generative-ai'); 
 const http = require('http');
 
-if (!process.env.TELEGRAM_BOT_TOKEN) { process.exit(1); }
-if (!process.env.GEMINI_API_KEY) { process.exit(1); }
+if (!process.env.TELEGRAM_BOT_TOKEN) { console.error("Нет TELEGRAM_BOT_TOKEN"); process.exit(1); }
+if (!process.env.GEMINI_API_KEY) { console.error("Нет GEMINI_API_KEY"); process.exit(1); }
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-// Создаем объект через правильный класс GoogleGenAI
-const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY); 
+const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
+
+// Глобальное объявление модели, чтобы методы квеста и мемов имели к ней доступ
+const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
 
 const usersState = {};
-console.log("БОТ ЗАПУЩЕН!");
+const userCooldown = {};
+const AI_TIMEOUT = 15000;
 
+console.log("БОТ ИНИЦИАЛИЗИРОВАН!");
+
+// Вспомогательная функция таймаута
+function withTimeout(promise, timeoutMs) {
+  return Promise.race([
+    promise,
+    new Promise((_, reject) =>
+      setTimeout(() => reject(new Error("Timeout")), timeoutMs)
+    )
+  ]);
+}
+
+// Восстановленная функция askGemini
+async function askGemini(userQuestion) {
+  try {
     const systemInstruction = "Ты — Mira, продвинутый ИИ-ассистент в Telegram-боте. Ты общаешься с IT-юмором, дружелюбно и профессионально.";
+    
+    const result = await withTimeout(
+      model.generateContent({
+        contents: [{ role: 'user', parts: [{ text: userQuestion }] }],
+        generationConfig: { systemInstruction: systemInstruction }
+      }),
+      AI_TIMEOUT
+    );
+
     const response = await result.response;
     return response.text();
   } catch (error) {
     console.error("ПОЛНЫЙ ЛОГ ОШИБКИ GEMINI:", error);
-    return "🚨 Ошибка Gemini API. Возможно, не задан GEMINI_API_KEY в Environment Variables на Render или лимиты исчерпаны.";
+    return "🚨 Ошибка Gemini API. Возможно, не задан GEMINI_API_KEY в Environment Variables или лимиты исчерпаны.";
   }
 }
 
 async function generateMemeDataFromGemini(userMemeRequest) {
   try {
-    const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const prompt = `User wants an IT meme about: "${userMemeRequest}". Output STRICTLY in this format, separated by "//": [English Image Description] // [Russian Funny Joke]`;
     const result = await model.generateContent(prompt);
     const response = await result.response;
@@ -38,20 +64,6 @@ async function generateMemeDataFromGemini(userMemeRequest) {
     console.error("ПОЛНЫЙ ЛОГ ОШИБКИ МЕМ-GEMINI:", error);
     return { englishPrompt: "A funny programmer stressed at desk, digital art", russianJoke: "Дедлайн близко! Работаем!" };
   }
-}
-
-const usersState = {};
-const userCooldown = {};
-
-const AI_TIMEOUT = 15000;
-
-function withTimeout(promise, timeoutMs) {
-  return Promise.race([
-    promise,
-    new Promise((_, reject) =>
-      setTimeout(() => reject(new Error("Timeout")), timeoutMs)
-    )
-  ]);
 }
 
 // =========================
@@ -78,7 +90,6 @@ async function sendMainMenu(ctx) {
       "• Отвечать на любые сложные технические вопросы\n\n" +
       "Выбери нужный режим на клавиатуре ниже, чтобы начать! 👇";
 
-    // ПРАВИЛЬНЫЙ СИНТАКСИС: Опции и клавиатура передаются вместе в одном объекте
     await ctx.reply(welcomeText, {
       parse_mode: 'Markdown',
       ...Markup.keyboard([
@@ -96,34 +107,25 @@ async function sendMainMenu(ctx) {
 }
 
 // =========================
-// START
+// START / MEME COMMANDS
 // =========================
 
 bot.start(async (ctx) => {
   const chatId = ctx.chat.id;
-
   delete usersState[chatId];
-
   await sendMainMenu(ctx);
 });
 
-// =========================
-// MEME
-// =========================
-
 bot.command('meme', async (ctx) => {
   const chatId = ctx.chat.id;
-
   delete usersState[chatId];
-
   await generateAndSendMeme(ctx);
 });
 
 // =========================
-// TEXT
+// TEXT HANDLERS
 // =========================
 
-// Обработчик нажатия на кнопку "Спросить ИИ Mira"
 bot.hears('🤖 Спросить ИИ Mira', async (ctx) => {
   const chatId = ctx.chat.id;
   if (!usersState[chatId]) usersState[chatId] = { hp: 100, score: 0, step: 1 };
@@ -133,12 +135,7 @@ bot.hears('🤖 Спросить ИИ Mira', async (ctx) => {
 
 bot.hears('🎮 Начать ИИ-Симулятор', async (ctx) => {
   const chatId = ctx.chat.id;
-  if (!usersState[chatId]) usersState[chatId] = { hp: 100, score: 0, step: 1 };
-  usersState[chatId].isWaitingForQuestion = false; // ВЫКЛЮЧАЕМ ИИ при переходе в игру
-  usersState[chatId].step = 1;
-  usersState[chatId].hp = 100;
-  usersState[chatId].score = 0;
-
+  usersState[chatId] = { hp: 100, score: 0, step: 1, isWaitingForQuestion: false }; 
   return generateQuestStep(ctx);
 });
 
@@ -147,20 +144,17 @@ bot.on('text', async (ctx) => {
   const userText = ctx.message.text;
   const userTextLower = userText.toLowerCase();
 
-  // 1. Инициализируем стейт пользователя, если его нет
   if (!usersState[chatId]) {
     usersState[chatId] = { hp: 100, score: 0, step: 1, isWaitingForQuestion: false };
   }
 
-  // 2. ЖЕСТКИЙ ПРИОРИТЕТ ДЛЯ КНОПОК МЕНЮ И КОМАНД
+  // Приоритет для системных кнопок меню
   if (userText.startsWith('/') || userTextLower.includes('симулятор') || userTextLower.includes('мем') || userTextLower.includes('спросить') || userTextLower.includes('старт') || userText.includes('🎮') || userText.includes('🤖') || userText.includes('❤️')) {
-
-    usersState[chatId].isWaitingForQuestion = false; // выключаем ИИ
-    console.log(`[Menu Redirect] Обнаружена системная кнопка: "${userText}". Пропускаем к bot.hears.`);
-    return; // позволяем bot.hears отработать
+    usersState[chatId].isWaitingForQuestion = false; 
+    return; 
   }
 
-  // 3. ЛОГИКА ДЛЯ СВОБОДНОГО ВВОДА ИИ (если включен флаг)
+  // Логика свободного текстового ввода для ИИ
   if (usersState[chatId].isWaitingForQuestion) {
     try {
       if (userTextLower.includes('картинка') || userTextLower.includes('нарисуй') || userTextLower.includes('сгенерируй') || userTextLower.includes('дорисуй')) {
@@ -169,7 +163,8 @@ bot.on('text', async (ctx) => {
         await ctx.sendChatAction('upload_photo');
 
         const encodedPrompt = encodeURIComponent(memeData.englishPrompt);
-        const imageUrl = `https://pollinations.ai{encodedPrompt}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000)}`;
+        // Исправлена интерполяция строки (добавлен знак доллара $)
+        const imageUrl = `https://pollinations.ai/p/${encodedPrompt}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000)}`;
 
         await ctx.replyWithPhoto(imageUrl, {
           caption: `🚀 **Ваш интерактивный мем готов!**\n\n🎯 *Запрос:* "${userText}"\n\n💬 **Шутка от Mira:**\n_${memeData.russianJoke}_\n\n🤖 _(ИИ сгенерировал сцену: ${memeData.englishPrompt})_`,
@@ -187,9 +182,6 @@ bot.on('text', async (ctx) => {
     }
     return;
   }
-
-  // --- 4. Логика вашей игры/симулятора (если текст не кнопка и не ИИ запрос) ---
-  // Если у тебя тут обрабатывается ввод ответов игры без кнопок, оставь этот код здесь.
 });
 
 // =========================
@@ -199,59 +191,31 @@ bot.on('text', async (ctx) => {
 async function generateAndSendMeme(ctx) {
   const chatId = ctx.chat.id;
 
-  if (
-    userCooldown[chatId] &&
-    Date.now() - userCooldown[chatId] < 2000
-  ) {
+  if (userCooldown[chatId] && Date.now() - userCooldown[chatId] < 2000) {
     return ctx.reply("⏳ Слишком быстро! Подожди пару секунд.");
   }
-
   userCooldown[chatId] = Date.now();
 
   let loadingMsg;
-
   try {
-    loadingMsg = await ctx.reply(
-      "🤖 ИИ-агент Mira формулирует ответ..."
-    );
+    loadingMsg = await ctx.reply("🤖 ИИ-агент Mira формулирует ответ...");
 
-    const prompt = `
-Ты — официальный ИИ-агент Mira (@mira).
-Придумай короткий смешной мем на русском
-про программистов, дедлайны и экосистему Mira.
-В конце добавь:
-"Используй @mira"
-`;
+    const prompt = `Ты — официальный ИИ-агент Mira (@mira). Придумай короткий смешной мем на русском про программистов, дедлайны и экосистему Mira. В конце добавь: "Используй @mira"`;
 
     const result = await withTimeout(
       model.generateContent(prompt),
       AI_TIMEOUT
     );
 
-    await ctx.telegram.deleteMessage(
-      chatId,
-      loadingMsg.message_id
-    );
-
+    await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
     await ctx.reply(result.response.text());
 
   } catch (error) {
     console.error("[Meme Error]", error);
-
     if (loadingMsg) {
-      try {
-        await ctx.telegram.deleteMessage(
-          chatId,
-          loadingMsg.message_id
-        );
-      } catch {}
+      await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
     }
-
-    const msg =
-      error.message === "Timeout"
-        ? "⏰ ИИ слишком долго думает"
-        : "💀 ИИ Mira ушел на перезагрузку";
-
+    const msg = error.message === "Timeout" ? "⏰ ИИ слишком долго думает" : "💀 ИИ Mira ушел на перезагрузку";
     await ctx.reply(msg);
   }
 }
@@ -263,125 +227,62 @@ async function generateAndSendMeme(ctx) {
 async function generateQuestStep(ctx) {
   const chatId = ctx.chat.id;
 
-  if (
-    userCooldown[chatId] &&
-    Date.now() - userCooldown[chatId] < 2000
-  ) {
+  if (userCooldown[chatId] && Date.now() - userCooldown[chatId] < 2000) {
     return ctx.reply("⏳ Подожди пару секунд.");
   }
-
   userCooldown[chatId] = Date.now();
 
   let loadingMsg;
-
   try {
-    loadingMsg = await ctx.reply(
-      "⏳ ИИ Mira придумывает испытание..."
-    );
+    loadingMsg = await ctx.reply("⏳ ИИ Mira придумывает испытание...");
 
-    const prompt = `
-Ты — геймдизайнер текстового ИТ-квеста.
-
-Сгенерируй одну стрессовую ИТ-ситуацию.
-
-Верни ТОЛЬКО JSON:
-
-{
-  "situation":"...",
-  "text_a":"...",
-  "text_b":"..."
-}
-`;
+    const prompt = `Ты — геймдизайнер текстового ИТ-квеста. Сгенерируй одну стрессовую ИТ-ситуацию. Верни ТОЛЬКО JSON объекта без форматирования markdown: {"situation":"...", "text_a":"...", "text_b":"..."}`;
 
     const result = await withTimeout(
       model.generateContent(prompt),
       AI_TIMEOUT
     );
 
-    let cleanText = result.response.text()
-      .replace(/```json|```/gi, "")
-      .trim();
-
+    let cleanText = result.response.text().replace(/```json|```/gi, "").trim();
     let questData;
 
     try {
       questData = JSON.parse(cleanText);
-
-      if (
-        !questData.situation ||
-        !questData.text_a ||
-        !questData.text_b
-      ) {
+      if (!questData.situation || !questData.text_a || !questData.text_b) {
         throw new Error("Invalid JSON");
       }
-
     } catch (e) {
       console.error("[Quest Parse Error]", cleanText);
-
       questData = {
-        situation:
-          "🔥 Срочный баг в production!",
-        text_a:
-          "Патчить без тестов",
-        text_b:
-          "Использовать Mira"
+        situation: "🔥 Срочный баг в production!",
+        text_a: "Патчить без тестов",
+        text_b: "Использовать Mira"
       };
     }
 
-    // Проверяем, существует ли пользователь в памяти. Если нет — создаем его структуру.
-if (!usersState[chatId]) {
-  usersState[chatId] = {
-    hp: 100,
-    score: 0,
-    step: 1
-  };
-}
-
-// Теперь это абсолютно безопасно, бот больше не упадет
-usersState[chatId].currentQuest = questData;
+    if (!usersState[chatId]) {
+      usersState[chatId] = { hp: 100, score: 0, step: 1 };
+    }
+    usersState[chatId].currentQuest = questData;
 
     if (loadingMsg) {
-      await ctx.telegram.deleteMessage(
-        chatId,
-        loadingMsg.message_id
-      );
+      await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
     }
 
     await ctx.reply(
       `🎮 ИТ-СИМУЛЯТОР: ШАГ ${usersState[chatId].step}\n\n${questData.situation}`,
       Markup.inlineKeyboard([
-        [
-          Markup.button.callback(
-            `A: ${questData.text_a}`,
-            'click_a'
-          )
-        ],
-        [
-          Markup.button.callback(
-            `B: ${questData.text_b}`,
-            'click_b'
-          )
-        ]
+        [Markup.button.callback(`A: ${questData.text_a}`, 'click_a')],
+        [Markup.button.callback(`B: ${questData.text_b}`, 'click_b')]
       ])
     );
 
   } catch (e) {
     console.error("[Quest Error]", e);
-
     if (loadingMsg) {
-      try {
-        await ctx.telegram.deleteMessage(
-          chatId,
-          loadingMsg.message_id
-        );
-      } catch {}
+      await ctx.telegram.deleteMessage(chatId, loadingMsg.message_id).catch(() => {});
     }
-
-    const msg =
-      e.message === "Timeout"
-        ? "⏰ ИИ слишком долго думает"
-        : "💥 Ошибка генерации";
-
+    const msg = e.message === "Timeout" ? "⏰ ИИ слишком долго думает" : "💥 Ошибка генерации";
     await ctx.reply(msg);
   }
 }
@@ -394,52 +295,35 @@ bot.action(['click_a', 'click_b'], async (ctx) => {
   const chatId = ctx.chat.id;
   const action = ctx.match[0];
 
-  await ctx.answerCbQuery();
+  await ctx.answerCbQuery().catch(() => {});
 
   if (!usersState[chatId]) {
     return sendMainMenu(ctx);
   }
 
-  if (usersState[chatId].locked) {
-    return;
-  }
-
+  if (usersState[chatId].locked) return;
   usersState[chatId].locked = true;
 
   let responseText = "";
-
   if (action === 'click_a') {
     usersState[chatId].hp -= 35;
-
-    responseText =
-      `💥 Плохой выбор!\n\n` +
-      `-35 HP\n` +
-      `❤️ HP: ${usersState[chatId].hp}`;
-
+    responseText = `💥 Плохой выбор!\n\n-35 HP\n❤️ HP: ${usersState[chatId].hp}`;
   } else {
     usersState[chatId].score += 50;
-
-    responseText =
-      `🚀 Отличный выбор!\n\n` +
-      `+50 продуктивности\n` +
-      `📈 Очки: ${usersState[chatId].score}`;
+    responseText = `🚀 Отличный выбор!\n\n+50 продуктивности\n📈 Очки: ${usersState[chatId].score}`;
   }
 
   try {
-    await ctx.editMessageReplyMarkup({
-      inline_keyboard: []
-    });
+    await ctx.editMessageReplyMarkup({ inline_keyboard: [] });
   } catch (e) {
     console.log("[Edit Error]", e.message);
   }
 
   await ctx.reply(responseText);
-
   usersState[chatId].step += 1;
 
   setTimeout(async () => {
     if (!usersState[chatId]) return;
-
     usersState[chatId].locked = false;
 
     if (usersState[chatId].step <= 3) {
@@ -456,39 +340,19 @@ bot.action(['click_a', 'click_b'], async (ctx) => {
 
 async function finishGame(ctx) {
   const chatId = ctx.chat.id;
-
   if (!usersState[chatId]) return;
 
   const finalHp = usersState[chatId].hp;
   const finalScore = usersState[chatId].score;
-
   const total = finalHp + finalScore;
 
-  let status =
-    total >= 150
-      ? "👑 ГИГА-ФАУНДЕР"
-      : total >= 80
-      ? "🧠 СВЕРХСОЗНАНИЕ"
-      : "💀 ТИМЛИД-ВЫГОРАШ";
+  let status = total >= 150 ? "👑 ГИГА-ФАУНДЕР" : total >= 80 ? "🧠 СВЕРХСОЗНАНИЕ" : "💀 ТИМЛИД-ВЫГОРАШ";
 
   await ctx.reply(
-    `🏁 ФИНАЛ ИГРЫ\n\n` +
-    `🏆 Статус: ${status}\n\n` +
-    `❤️ HP: ${finalHp}\n` +
-    `📈 Очки: ${finalScore}`,
+    `🏁 ФИНАЛ ИГРЫ\n\n🏆 Статус: ${status}\n\n❤️ HP: ${finalHp}\n📈 Очки: ${finalScore}`,
     Markup.inlineKeyboard([
-      [
-        Markup.button.url(
-          '🔥 Mira Pro',
-          'https://t.me'
-        )
-      ],
-      [
-        Markup.button.switchToChat(
-          '📢 Поделиться',
-          `Я получил статус ${status}`
-        )
-      ]
+      [Markup.button.url('🔥 Mira Pro', 'https://t.me')],
+      [Markup.button.switchToChat('📢 Поделиться', `Я получил статус ${status}`)]
     ])
   );
 
@@ -505,50 +369,25 @@ const server = http.createServer((req, res) => {
 });
 
 server.listen(process.env.PORT || 3000, () => {
-  console.log(
-    'Server running on port',
-    process.env.PORT || 3000
-  );
+  console.log('Server running on port', process.env.PORT || 3000);
 });
 
 // =========================
 // Launch
 // =========================
 
-bot.launch();
-
-console.log("Telegraf bot started");
-
-// =========================
-// Errors
-// =========================
-
-process.on('unhandledRejection', (reason) => {
-  console.error('Unhandled Rejection:', reason);
+bot.launch().then(() => {
+  console.log("Telegraf bot successfully started");
 });
 
-process.on('uncaughtException', (error) => {
-  console.error('Uncaught Exception:', error);
-});
+// Процессы завершения кода...
+process.on('unhandledRejection', (reason) => { console.error('Unhandled Rejection:', reason); });
+process.on('uncaughtException', (error) => { console.error('Uncaught Exception:', error); });
 
-// =========================
-// Graceful shutdown
-// =========================
-
-process.once('SIGINT', () => {
-  console.log("Stopping bot...");
-  bot.stop('SIGINT');
-
-  server.close(() => {
-    process.exit(0);
-  });
-});
-
-process.once('SIGTERM', () => {
-  console.log("Stopping bot...");
-  bot.stop('SIGTERM');
-
-  server.close(() => {
-    process.exit(0);
-  });
-});
+const shutdown = (signal) => {
+  console.log(`Stopping bot via ${signal}...`);
+  bot.stop(signal);
+  server.close(() => { process.exit(0); });
+};
+process.once('SIGINT', () => shutdown('SIGINT'));
+process.once('SIGTERM', () => shutdown('SIGTERM')); 
