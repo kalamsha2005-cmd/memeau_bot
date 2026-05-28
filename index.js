@@ -151,6 +151,17 @@ bot.hears('🤖 Спросить ИИ Mira', async (ctx) => {
   await ctx.reply('🤖 Я готова! Напиши свой вопрос, или попроси меня сгенерировать IT-мем/картинку (например: "сгенерируй мем про дедлайн").');
 });
 
+bot.hears('🎮 Начать ИИ-Симулятор', async (ctx) => {
+  const chatId = ctx.chat.id;
+  if (!usersState[chatId]) usersState[chatId] = { hp: 100, score: 0, step: 1 };
+  usersState[chatId].isWaitingForQuestion = false; // ВЫКЛЮЧАЕМ ИИ при переходе в игру
+  usersState[chatId].step = 1;
+  usersState[chatId].hp = 100;
+  usersState[chatId].score = 0;
+
+  return generateQuestStep(ctx);
+});
+
 bot.on('text', async (ctx) => {
   const chatId = ctx.chat.id;
   const text = ctx.message.text;
@@ -158,15 +169,14 @@ bot.on('text', async (ctx) => {
 
   if (!text) return;
 
-  // Начать симулятор
-  if (text === '🎮 Начать ИИ-Симулятор') {
-    usersState[chatId] = {
-      step: 1,
-      hp: 100,
-      score: 0
-    };
+  if (!usersState[chatId]) usersState[chatId] = { hp: 100, score: 0, step: 1 };
 
-    return generateQuestStep(ctx);
+  // Если пользователь решил нажать на системную кнопку меню, выходим из ИИ режима
+  if (text.startsWith('/') ||
+      text.includes('Начать ИИ-Симулятор') ||
+      text.includes('Генерировать мем')) {
+    usersState[chatId].isWaitingForQuestion = false; // выключаем режим ИИ
+    return;
   }
 
   // Игнорируем служебные кнопки/команды, чтобы они не улетали в ИИ
@@ -208,9 +218,8 @@ bot.on('text', async (ctx) => {
     } catch (error) {
       console.error("Ошибка обработчика:", error);
       await ctx.reply("🚨 Ошибка при обработке. Попробуй еще раз.");
-    } finally {
-      usersState[chatId].isWaitingForQuestion = false;
     }
+    // ВАЖНО: Мы БОЛЬШЕ НЕ ВЫКЛЮЧАЕМ флаг тут, чтобы сессия общения продолжалась!
     return;
   }
 });
