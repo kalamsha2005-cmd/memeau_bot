@@ -23,36 +23,20 @@ const model = ai.getGenerativeModel({
   model: "gemini-2.5-flash"
 });
 
-// Функция запроса к Gemini (собственная для "свободного ввода")
+// 1. Возвращаем простую текстовую функцию askGemini (без JSON требований)
 async function askGemini(userPrompt) {
   try {
     const genModel = ai.getGenerativeModel({ model: "gemini-pro" });
 
-    const systemInstruction = `
-    Ты — Mira, продвинутый ИИ-ассистент в Telegram-боте. Ты общаешься с IT-юмором.
-    
-    КРИТИЧЕСКОЕ ПРАВИЛО ДЛЯ КАРТИНОК И МЕМОВ:
-    Если пользователь просит тебя: "покажи мем", "сгенерируй картинку", "пришли шутку в картинке" или просит любое визуальное изображение, ты обязана ответить СТРОГО в формате JSON без какого-либо лишнего текста вокруг.
-    Формат JSON:
-    {
-      "isImage": true,
-      "imagePrompt": "подробное описание картинки или IT-мема на АНГЛИЙСКОМ языке для нейросети-генератора"
-    }
-
-    Если пользователь задает ОБЫЧНЫЙ текстовый вопрос (без просьбы сгенерировать картинку/мем), отвечай как обычно — простым текстом.
-    `;
+    const systemInstruction = `Ты — Mira, продвинутый ИИ-ассистент в Telegram-боте. Ты общаешься с IT-юмором, дружелюбно и профессионально. Отвечай на вопрос пользователя.`;
 
     const fullPrompt = `${systemInstruction}\n\nВопрос пользователя: ${userPrompt}`;
-
-    const result = await withTimeout(
-      genModel.generateContent(fullPrompt),
-      AI_TIMEOUT
-    );
-
-    return result.response.text();
+    const result = await genModel.generateContent(fullPrompt);
+    const response = await result.response;
+    return response.text();
   } catch (error) {
-    console.error("Ошибка Gemini API:", error);
-    return "🚨 ИИ-агент Mira временно перегружен запросами.";
+    console.error("Критическая ошибка Gemini API:", error);
+    return "🚨 Ошибка ИИ-модели. Проверь GEMINI_API_KEY в панели Render!";
   }
 }
 
@@ -138,6 +122,7 @@ bot.hears('🤖 Спросить ИИ Mira', async (ctx) => {
 bot.on('text', async (ctx) => {
   const chatId = ctx.chat.id;
   const text = ctx.message.text;
+  const userText = text.toLowerCase(); // переводим в нижний регистр для проверки
 
   if (!text) return;
 
@@ -155,7 +140,6 @@ bot.on('text', async (ctx) => {
   // Игнорируем служебные кнопки/команды, чтобы они не улетали в ИИ
   if (text.startsWith('/') ||
       text.includes('ИИ-Симулятор') ||
-      text.includes('мем') ||
       text.includes('Спросить ИИ Mira')) {
     return;
   }
@@ -164,38 +148,29 @@ bot.on('text', async (ctx) => {
     return sendMainMenu(ctx);
   }
 
-  // Обработка свободного ввода для ожидания ответа от ИИ
+  // 2. Глобальный обработчик текста с умным разделением на ТЕКСТ / КАРТИНКУ
   if (usersState[chatId].isWaitingForQuestion) {
     try {
-      await ctx.sendChatAction('typing');
-      const aiResponse = await askGemini(text);
+      // ПРОВЕРКА: Если пользователь просит КАРТИНКУ или МЕМ
+      if (userText.includes('мем') || userText.includes('картинка') || userText.includes('нарисуй') || userText.includes('сгенерируй')) {
+        await ctx.sendChatAction('upload_photo');
+        
+        // Берем текст пользователя, кодируем его для ссылки генератора картинок
+        const encodedPrompt = encodeURIComponent(text);
+        const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000)}`;
 
-      // Если ИИ вернул JSON для генерации картинки — попытаться распарсить и отправить изображение
-      const trimmed = aiResponse ? aiResponse.trim() : '';
-      if (trimmed.startsWith('{')) {
-        try {
-          const jsonData = JSON.parse(trimmed);
-          if (jsonData.isImage && jsonData.imagePrompt) {
-            const encodedPrompt = encodeURIComponent(jsonData.imagePrompt);
-            // Используем Pollinations быстрый эндпоинт (формат: image.pollinations.ai/prompt/{prompt})
-            const imageUrl = `https://image.pollinations.ai/prompt/${encodedPrompt}?width=1024&height=1024&seed=${Math.floor(Math.random() * 1000)}`;
-
-            await ctx.sendChatAction('upload_photo');
-            await ctx.replyWithPhoto(imageUrl, {
-              caption: `🚀 Вот твой мем по запросу: "${text}"\n\nСгенерировано по промпту: ${jsonData.imagePrompt}`
-            });
-            return;
-          }
-        } catch (jsonErr) {
-          console.log("Ответ не является валидным JSON, отправляем как обычный текст");
-        }
+        await ctx.replyWithPhoto(imageUrl, { 
+          caption: `🚀 Вот твой мем по запросу: "${text}"\n\nСоздано ИИ Mira.` 
+        });
+      } else {
+        // ОБЫЧНЫЙ ТЕКСТ: Просто отправляем в Gemini
+        await ctx.sendChatAction('typing');
+        const aiResponse = await askGemini(text);
+        await ctx.reply(aiResponse);
       }
-
-      // Если это был обычный текст — просто отправляем ответ ИИ
-      await ctx.reply(aiResponse);
     } catch (error) {
-      console.error("Ошибка при работе ИИ:", error);
-      await ctx.reply("🚨 Произошла ошибка. Попробуйте ещё раз.");
+      console.error("Ошибка обработчика:", error);
+      await ctx.reply("🚨 Ошибка при обработке. Попробуй еще раз.");
     } finally {
       usersState[chatId].isWaitingForQuestion = false;
     }
