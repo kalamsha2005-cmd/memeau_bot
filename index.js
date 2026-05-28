@@ -1,7 +1,6 @@
 require('dotenv').config();
-
 const { Telegraf, Markup } = require('telegraf');
-const { GoogleGenAI } = require('@google/generative-ai');
+const { GoogleGenAI } = require('@google/generative-ai'); // Оставляем этот стандартный импорт
 const http = require('http');
 
 if (!process.env.TELEGRAM_BOT_TOKEN) {
@@ -15,19 +14,16 @@ if (!process.env.GEMINI_API_KEY) {
 }
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
+// Инициализируем genAI строго по правилам импортированной библиотеки
+const genAI = new GoogleGenAI(process.env.GEMINI_API_KEY); 
 
-console.log("БОТ ЗАПУЩЕН С TELEGRAF + GEMINI");
+console.log("БОТ ЗАПУЩЕН С TELEGRAF + GEMINI 1.5 FLASH");
 
-// ПРАВИЛЬНЫЙ ВАРИАНТ:
-const { GoogleGenAI } = require('@google/genai');
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY });
-
-// 1. Возвращаем простую текстовую функцию askGemini (без JSON требований)
+// Функция askGemini теперь будет работать без синтаксических ошибок
 async function askGemini(userPrompt) {
   try {
     const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
     const systemInstruction = "Ты — Mira, продвинутый ИИ-ассистент в Telegram-боте. Ты общаешься с IT-юмором, дружелюбно и профессионально.";
-    const result = await model.generateContent(`${systemInstruction}\n\nВопрос: ${userPrompt}`);
     const response = await result.response;
     return response.text();
   } catch (error) {
