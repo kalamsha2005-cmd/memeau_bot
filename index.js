@@ -1,6 +1,6 @@
 require('dotenv').config();
 const { Telegraf, Markup } = require('telegraf');
-// Используем актуальный класс GoogleGenAI из библиотеки
+// 1. Импортируем сам класс GoogleGenAI
 const { GoogleGenAI } = require('@google/generative-ai'); 
 const http = require('http');
 
@@ -8,10 +8,18 @@ if (!process.env.TELEGRAM_BOT_TOKEN) { console.error("Нет TELEGRAM_BOT_TOKEN"
 if (!process.env.GEMINI_API_KEY) { console.error("Нет GEMINI_API_KEY"); process.exit(1); }
 
 const bot = new Telegraf(process.env.TELEGRAM_BOT_TOKEN);
-const genAI = new GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
 
-// Глобальное объявление модели, чтобы методы квеста и мемов имели к ней доступ
+// 2. ИСПРАВЛЕННЫЙ ВАРИАНТ ИНИЦИАЛИЗАЦИИ (вызываем класс БЕЗ оператора `new`)
+const genAI = GoogleGenAI({ apiKey: process.env.GEMINI_API_KEY }); 
+
+// 3. Создаем модель
 const model = genAI.getGenerativeModel({ model: "gemini-1.5-flash" });
+
+const usersState = {};
+const userCooldown = {};
+const AI_TIMEOUT = 15000;
+
+console.log("БОТ ИНИЦИАЛИЗИРОВАН!");
 
 const usersState = {};
 const userCooldown = {};
